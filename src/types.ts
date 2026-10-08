@@ -2,6 +2,12 @@ export type CharacterType = 'bubu' | 'dudu' | 'panda' | 'baby_bear';
 
 export type MascotExpression = 'happy' | 'celebrate' | 'sad' | 'pout' | 'love' | 'neutral';
 
+export interface FamilyGroup {
+  id: string; // e.g., 'GAU-8824'
+  name: string; // e.g., 'Nhà Gấu Bubu & Dudu'
+  createdAt: number;
+}
+
 export interface Member {
   id: string;
   name: string;

@@ -7,8 +7,15 @@ import type {
   PointLog,
   RewardClaim,
   TaskCategory,
+  FamilyGroup,
 } from './types';
-import { loadStoredData, saveToStorage } from './utils/storage';
+import {
+  DEFAULT_FAMILY,
+  loadStoredFamilies,
+  saveFamiliesToStorage,
+  loadStoredData,
+  saveToStorage,
+} from './utils/storage';
 import { sound } from './utils/sound';
 import { BUBU_DUDU_STICKERS } from './utils/stickers';
 import { Mascot } from './components/Mascot';
@@ -16,6 +23,8 @@ import { ActionConfirmModal } from './components/ActionConfirmModal';
 import { TaskModal } from './components/TaskModal';
 import { RewardModal } from './components/RewardModal';
 import { MemberModal } from './components/MemberModal';
+import { MemberManagementModal } from './components/MemberManagementModal';
+import { FamilyModal } from './components/FamilyModal';
 import { RewardRedeemModal } from './components/RewardRedeemModal';
 import {
   Sparkles,
@@ -35,9 +44,15 @@ import {
   Edit2,
   Flame,
   Smile,
+  Home,
+  Users,
 } from 'lucide-react';
 
 export default function App() {
+  // --- Family Groups State ---
+  const [families, setFamilies] = useState<FamilyGroup[]>([DEFAULT_FAMILY]);
+  const [currentFamily, setCurrentFamily] = useState<FamilyGroup>(DEFAULT_FAMILY);
+
   // --- Persistent State ---
   const [dataLoaded, setDataLoaded] = useState(false);
   const [members, setMembers] = useState<Member[]>([]);
@@ -67,53 +82,86 @@ export default function App() {
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
   const [memberToEdit, setMemberToEdit] = useState<Member | null>(null);
 
+  const [isMemberManagementOpen, setIsMemberManagementOpen] = useState(false);
+  const [isFamilyModalOpen, setIsFamilyModalOpen] = useState(false);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+
   // Toast notification
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'warning' } | null>(null);
 
-  // Load initial data
+  // Load initial data & Family Groups
   useEffect(() => {
-    const loaded = loadStoredData();
-    setMembers(loaded.members);
-    setTasks(loaded.tasks);
-    setRewards(loaded.rewards);
-    setLogs(loaded.logs);
-    setClaims(loaded.claims);
-    setActiveMemberId(loaded.activeMemberId || loaded.members[0]?.id || '');
-    setSoundEnabled(loaded.soundEnabled);
-    sound.enabled = loaded.soundEnabled;
+    const { currentFamilyId, families: loadedFamilies } = loadStoredFamilies();
+    setFamilies(loadedFamilies);
+
+    // Check URL parameters for ?family=...
+    const urlParams = new URLSearchParams(window.location.search);
+    const queryFamilyId = urlParams.get('family');
+
+    let activeFamily = loadedFamilies.find((f) => f.id === currentFamilyId) || DEFAULT_FAMILY;
+
+    if (queryFamilyId) {
+      const existing = loadedFamilies.find((f) => f.id === queryFamilyId);
+      if (existing) {
+        activeFamily = existing;
+      } else {
+        const newFam: FamilyGroup = {
+          id: queryFamilyId,
+          name: `Nhóm Gia Đình ${queryFamilyId}`,
+          createdAt: Date.now(),
+        };
+        const updated = [...loadedFamilies, newFam];
+        setFamilies(updated);
+        saveFamiliesToStorage(updated, queryFamilyId);
+        activeFamily = newFam;
+      }
+    }
+
+    setCurrentFamily(activeFamily);
+
+    // Load data for active family
+    const loadedData = loadStoredData(activeFamily.id);
+    setMembers(loadedData.members);
+    setTasks(loadedData.tasks);
+    setRewards(loadedData.rewards);
+    setLogs(loadedData.logs);
+    setClaims(loadedData.claims);
+    setActiveMemberId(loadedData.activeMemberId || loadedData.members[0]?.id || '');
+    setSoundEnabled(loadedData.soundEnabled);
+    sound.enabled = loadedData.soundEnabled;
     setDataLoaded(true);
   }, []);
 
-  // Save changes to localStorage
+  // Save changes to localStorage scoped by currentFamily.id
   useEffect(() => {
     if (!dataLoaded) return;
-    saveToStorage.members(members);
-  }, [members, dataLoaded]);
+    saveToStorage.members(members, currentFamily.id);
+  }, [members, dataLoaded, currentFamily.id]);
 
   useEffect(() => {
     if (!dataLoaded) return;
-    saveToStorage.tasks(tasks);
-  }, [tasks, dataLoaded]);
+    saveToStorage.tasks(tasks, currentFamily.id);
+  }, [tasks, dataLoaded, currentFamily.id]);
 
   useEffect(() => {
     if (!dataLoaded) return;
-    saveToStorage.rewards(rewards);
-  }, [rewards, dataLoaded]);
+    saveToStorage.rewards(rewards, currentFamily.id);
+  }, [rewards, dataLoaded, currentFamily.id]);
 
   useEffect(() => {
     if (!dataLoaded) return;
-    saveToStorage.logs(logs);
-  }, [logs, dataLoaded]);
+    saveToStorage.logs(logs, currentFamily.id);
+  }, [logs, dataLoaded, currentFamily.id]);
 
   useEffect(() => {
     if (!dataLoaded) return;
-    saveToStorage.claims(claims);
-  }, [claims, dataLoaded]);
+    saveToStorage.claims(claims, currentFamily.id);
+  }, [claims, dataLoaded, currentFamily.id]);
 
   useEffect(() => {
     if (!dataLoaded) return;
-    saveToStorage.activeMemberId(activeMemberId);
-  }, [activeMemberId, dataLoaded]);
+    saveToStorage.activeMemberId(activeMemberId, currentFamily.id);
+  }, [activeMemberId, dataLoaded, currentFamily.id]);
 
   useEffect(() => {
     if (!dataLoaded) return;
@@ -137,6 +185,74 @@ export default function App() {
     setTimeout(() => {
       setToastMessage(null);
     }, 3200);
+  };
+
+  // --- Handlers: Family Switching / Creating / Joining ---
+  const handleSelectFamily = (family: FamilyGroup) => {
+    sound.playPop();
+    setCurrentFamily(family);
+    saveFamiliesToStorage(families, family.id);
+    const loadedData = loadStoredData(family.id);
+    setMembers(loadedData.members);
+    setTasks(loadedData.tasks);
+    setRewards(loadedData.rewards);
+    setLogs(loadedData.logs);
+    setClaims(loadedData.claims);
+    setActiveMemberId(loadedData.activeMemberId || loadedData.members[0]?.id || '');
+    showToast(`Đã chuyển sang nhóm: ${family.name}! 🏡`);
+  };
+
+  const handleCreateFamily = (name: string, customId?: string) => {
+    sound.playPop();
+    const id = customId || `GAU-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newFam: FamilyGroup = {
+      id,
+      name,
+      createdAt: Date.now(),
+    };
+    const updated = [...families, newFam];
+    setFamilies(updated);
+    handleSelectFamily(newFam);
+    showToast(`Đã tạo thành công nhóm gia đình "${name}" (Mã: ${id})! ✨`);
+  };
+
+  const handleJoinFamily = (familyId: string, customName?: string) => {
+    sound.playPop();
+    const existing = families.find((f) => f.id === familyId);
+    if (existing) {
+      handleSelectFamily(existing);
+      return;
+    }
+    const newFam: FamilyGroup = {
+      id: familyId,
+      name: customName || `Nhóm Gia Đình ${familyId}`,
+      createdAt: Date.now(),
+    };
+    const updated = [...families, newFam];
+    setFamilies(updated);
+    handleSelectFamily(newFam);
+    showToast(`Đã tham gia nhóm gia đình "${newFam.name}"! 🏡`);
+  };
+
+  // --- Handlers: Reset All Points to 0 (Requirement 1) ---
+  const handleResetAllPoints = () => {
+    sound.playEarnPoint();
+    setMembers((prev) => prev.map((m) => ({ ...m, points: 0 })));
+    const newLog: PointLog = {
+      id: 'log_' + Date.now(),
+      memberId: 'all',
+      memberName: 'Tất cả gia đình',
+      memberCharacter: 'bubu',
+      taskTitle: '🔄 Khởi động lại: Reset toàn bộ điểm về 0 🐻',
+      points: 0,
+      type: 'earn',
+      note: 'Bắt đầu tuần thi đua mới',
+      timestamp: Date.now(),
+      stickerImage: '/stickers/bubu_dudu_pair.png',
+    };
+    setLogs((prev) => [newLog, ...prev]);
+    setIsResetConfirmOpen(false);
+    showToast('Đã đặt lại 0 điểm cho tất cả thành viên trong nhà! 🐻');
   };
 
   // --- Handlers: Logging Task Action ---
@@ -300,7 +416,7 @@ export default function App() {
     showToast(`Chúc mừng ${member.name} đã đổi thành công: ${reward.title}! 🎉`);
   };
 
-  // --- Handlers: Members CRUD ---
+  // --- Handlers: Members CRUD & Quick Adjust (Requirement 2) ---
   const handleSaveMember = (
     memberData: Omit<Member, 'id' | 'points' | 'streak'>,
     editId?: string
@@ -315,7 +431,7 @@ export default function App() {
       const newMember: Member = {
         ...memberData,
         id: 'member_' + Date.now(),
-        points: 50, // bonus starter points
+        points: 0, // start at 0
         streak: 1,
       };
       setMembers((prev) => [...prev, newMember]);
@@ -330,12 +446,47 @@ export default function App() {
       alert('Gia đình cần có ít nhất 1 thành viên!');
       return;
     }
-    setMembers((prev) => prev.filter((m) => m.id !== id));
-    if (activeMemberId === id) {
-      const remaining = members.filter((m) => m.id !== id);
-      if (remaining[0]) setActiveMemberId(remaining[0].id);
+    const memberToDelete = members.find((m) => m.id === id);
+    if (confirm(`Bạn có chắc muốn xóa thành viên "${memberToDelete?.name}"?`)) {
+      setMembers((prev) => prev.filter((m) => m.id !== id));
+      if (activeMemberId === id) {
+        const remaining = members.filter((m) => m.id !== id);
+        if (remaining[0]) setActiveMemberId(remaining[0].id);
+      }
+      showToast('Đã xóa thành viên!');
     }
-    showToast('Đã xóa thành viên!');
+  };
+
+  const handleQuickAdjustPoints = (member: Member, amount: number, reason: string) => {
+    const isPositive = amount > 0;
+    if (isPositive) {
+      sound.playEarnPoint();
+      confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
+    } else {
+      sound.playDeductPoint();
+    }
+
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.id === member.id ? { ...m, points: Math.max(0, m.points + amount) } : m
+      )
+    );
+
+    const newLog: PointLog = {
+      id: 'log_' + Date.now(),
+      memberId: member.id,
+      memberName: member.name,
+      memberCharacter: member.character,
+      taskTitle: isPositive ? `Thưởng trực tiếp: +${amount} 🐻` : `Trừ điểm trực tiếp: ${amount} 🐻`,
+      points: amount,
+      type: isPositive ? 'earn' : 'deduct',
+      note: reason,
+      timestamp: Date.now(),
+      stickerImage: isPositive ? '/stickers/flowers_love.png' : '/stickers/dudu_solo_grumpy.png',
+    };
+    setLogs((prev) => [newLog, ...prev]);
+
+    showToast(`Đã điều chỉnh ${isPositive ? '+' : ''}${amount} 🐻 cho ${member.name}!`);
   };
 
   // --- Revert / Undo Log Action ---
@@ -361,12 +512,20 @@ export default function App() {
   // --- Backup / Export / Import ---
   const handleExportData = () => {
     sound.playPop();
-    const fullData = { members, tasks, rewards, logs, claims, exportedAt: new Date().toISOString() };
+    const fullData = {
+      family: currentFamily,
+      members,
+      tasks,
+      rewards,
+      logs,
+      claims,
+      exportedAt: new Date().toISOString(),
+    };
     const blob = new Blob([JSON.stringify(fullData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `bubu_dudu_rewards_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `bubu_dudu_${currentFamily.id}_backup_${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
     showToast('Đã tải xuống file sao lưu!');
@@ -402,14 +561,12 @@ export default function App() {
   // --- Filtered Tasks ---
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
-      // Query filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesTitle = t.title.toLowerCase().includes(q);
         const matchesDesc = t.description?.toLowerCase().includes(q) || false;
         if (!matchesTitle && !matchesDesc) return false;
       }
-      // Tab filter
       if (taskFilter === 'all') return true;
       if (taskFilter === 'positive') return t.points > 0;
       if (taskFilter === 'negative') return t.points < 0;
@@ -433,7 +590,29 @@ export default function App() {
 
       {/* Main Container */}
       <div className="w-full max-w-2xl px-4 pt-4 sm:pt-6">
-        {/* Top Header with Authentic Sticker Artwork */}
+        {/* Top Family ID Bar (Requirement 3: Multi-tenant Family ID) */}
+        <div className="mb-2 flex items-center justify-between px-2 text-xs">
+          <button
+            onClick={() => setIsFamilyModalOpen(true)}
+            className="flex items-center gap-1.5 py-1 px-3 rounded-full bg-amber-100/80 hover:bg-amber-200/90 text-amber-900 font-extrabold border border-amber-300 shadow-2xs transition cursor-pointer"
+            title="Bấm để đổi nhóm hoặc chia sẻ link"
+          >
+            <Home className="w-3.5 h-3.5 text-amber-700" />
+            <span>{currentFamily.name}</span>
+            <span className="bg-amber-200/80 px-1.5 py-0.2 rounded-md font-mono text-[10px]">
+              ID: {currentFamily.id}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setIsFamilyModalOpen(true)}
+            className="text-[11px] font-black text-amber-800 hover:text-amber-950 underline decoration-amber-400 cursor-pointer"
+          >
+            + Đổi / Tham Gia Nhóm
+          </button>
+        </div>
+
+        {/* Top Header */}
         <header className="bg-white/85 backdrop-blur-md rounded-3xl p-3.5 sm:p-4 shadow-xs border-2 border-amber-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="relative w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center">
@@ -446,9 +625,6 @@ export default function App() {
             <div>
               <h1 className="text-lg sm:text-xl font-black text-amber-950 tracking-tight flex items-center gap-1.5">
                 <span>Tiệm Tích Điểm Bubu & Dudu</span>
-                <span className="text-xs bg-pink-100 text-pink-700 font-extrabold px-2 py-0.5 rounded-full border border-pink-200">
-                  Sticker Edition ✨
-                </span>
               </h1>
               <p className="text-xs text-amber-800/80 font-bold">
                 Chăm việc nhà • Tích điểm gấu • Đổi quà cưng xỉu 🍯
@@ -456,8 +632,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Sound & Member Actions */}
-          <div className="flex items-center gap-2">
+          {/* Sound & Member Management Buttons */}
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => {
                 setSoundEnabled(!soundEnabled);
@@ -469,14 +645,12 @@ export default function App() {
               {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-stone-400" />}
             </button>
             <button
-              onClick={() => {
-                setMemberToEdit(null);
-                setIsMemberModalOpen(true);
-              }}
-              className="p-2.5 rounded-2xl bg-amber-500 text-white font-extrabold hover:bg-amber-600 transition shadow-sm cursor-pointer"
-              title="Thêm thành viên mới"
+              onClick={() => setIsMemberManagementOpen(true)}
+              className="py-2 px-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs flex items-center gap-1 shadow-sm transition cursor-pointer"
+              title="Quản lý thành viên (Thêm, bớt, sửa ảnh)"
             >
-              <Plus className="w-4 h-4 stroke-[3]" />
+              <Users className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Quản Lý Gấu</span>
             </button>
           </div>
         </header>
@@ -512,6 +686,14 @@ export default function App() {
               </button>
             );
           })}
+
+          <button
+            onClick={() => setIsMemberManagementOpen(true)}
+            className="flex items-center gap-1 py-1.5 px-3 rounded-2xl font-extrabold text-xs transition shrink-0 border-2 border-dashed border-amber-300 text-amber-800 hover:bg-amber-50 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Thành viên</span>
+          </button>
         </div>
 
         {/* Active Member Hero Banner */}
@@ -527,7 +709,7 @@ export default function App() {
                   setIsMemberModalOpen(true);
                 }}
                 className="w-18 h-18 sm:w-20 sm:h-20 rounded-2xl bg-white/85 p-1.5 shadow-md border-2 border-white/90 flex items-center justify-center cursor-pointer hover:scale-105 transition"
-                title="Bấm để sửa thông tin thành viên"
+                title="Bấm để sửa thông tin / Đổi ảnh avatar"
               >
                 {activeMember.avatarSticker ? (
                   <img
@@ -589,7 +771,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Navigation Tabs (6 tabs including Sticker Collection) */}
+        {/* Navigation Tabs */}
         <div className="mt-4 grid grid-cols-6 gap-1 bg-stone-200/60 p-1.5 rounded-2xl">
           <button
             onClick={() => {
@@ -768,7 +950,6 @@ export default function App() {
                           : 'border-rose-100 hover:border-rose-300'
                       }`}
                     >
-                      {/* Left: Icon / Sticker Thumbnail & Title */}
                       <div
                         onClick={() => handleOpenActionModal(t)}
                         className="flex items-center gap-2.5 flex-1 min-w-0 pr-2 cursor-pointer"
@@ -794,7 +975,6 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Right: Point Badge and Edit Actions */}
                       <div className="flex items-center gap-2 shrink-0">
                         <button
                           onClick={() => handleOpenActionModal(t)}
@@ -809,7 +989,6 @@ export default function App() {
                           <span className="text-[10px]">🐻</span>
                         </button>
 
-                        {/* Edit dropdown */}
                         <div className="flex items-center opacity-70 group-hover:opacity-100 transition">
                           <button
                             onClick={() => {
@@ -1139,18 +1318,24 @@ export default function App() {
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
-                        <span
-                          className={`font-black text-xs sm:text-sm px-2.5 py-1 rounded-xl ${
-                            isEarn
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-rose-50 text-rose-700'
-                          }`}
-                        >
-                          {isEarn ? '+' : ''}{l.points} 🐻
-                        </span>
+                        {l.points !== 0 ? (
+                          <span
+                            className={`font-black text-xs sm:text-sm px-2.5 py-1 rounded-xl ${
+                              isEarn
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'bg-rose-50 text-rose-700'
+                            }`}
+                          >
+                            {isEarn ? '+' : ''}{l.points} 🐻
+                          </span>
+                        ) : (
+                          <span className="font-black text-xs px-2 py-0.5 rounded-lg bg-stone-100 text-stone-600">
+                            Reset
+                          </span>
+                        )}
                         <button
                           onClick={() => handleUndoLog(l)}
-                          className="p-1.5 text-stone-300 hover:text-stone-600 rounded-lg"
+                          className="p-1.5 text-stone-300 hover:text-stone-600 rounded-lg cursor-pointer"
                           title="Hoàn tác giao dịch này"
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
@@ -1260,11 +1445,72 @@ export default function App() {
           <div className="mt-4 space-y-4">
             <div>
               <h3 className="text-base font-black text-stone-800">
-                ⚙️ Cài Đặt & Sao Lưu Dữ Liệu
+                ⚙️ Cài Đặt & Quản Lý Dữ Liệu
               </h3>
               <p className="text-xs text-stone-500">
-                Tùy chỉnh trải nghiệm và bảo vệ dữ liệu điểm tích lũy của gia đình
+                Tùy chỉnh nhóm gia đình, reset điểm và bảo vệ dữ liệu
               </p>
+            </div>
+
+            {/* REQUIREMENT 1: RESET ALL POINTS TO 0 */}
+            <div className="bg-amber-50/80 p-4 rounded-3xl border-2 border-amber-300 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-amber-200 text-amber-900">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-amber-950">
+                    Đặt Lại 0 Điểm Tất Cả (Khởi Động Mới)
+                  </h4>
+                  <p className="text-xs text-amber-800/80">
+                    Đưa điểm mọi người về 0 🐻 để thi đua tuần/tháng mới (vẫn giữ nguyên thành viên & nhiệm vụ)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsResetConfirmOpen(true)}
+                className="py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs transition shadow-xs cursor-pointer shrink-0"
+              >
+                Reset về 0 🐻
+              </button>
+            </div>
+
+            {/* Member Management entry */}
+            <div className="bg-white p-4 rounded-3xl border border-stone-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-amber-50 text-amber-800">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-stone-800">Quản Lý Thành Viên Gia Đình</h4>
+                  <p className="text-xs text-stone-400">Thêm, xóa thành viên, cập nhật ảnh avatar hoặc điều chỉnh điểm</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsMemberManagementOpen(true)}
+                className="py-2 px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs transition cursor-pointer shrink-0"
+              >
+                Quản lý
+              </button>
+            </div>
+
+            {/* Family Group Settings */}
+            <div className="bg-white p-4 rounded-3xl border border-stone-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-amber-50 text-amber-800">
+                  <Home className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-stone-800">Nhóm Gia Đình & Chia Sẻ ID</h4>
+                  <p className="text-xs text-stone-400">Đang ở nhóm: <strong>{currentFamily.name}</strong> (Mã: {currentFamily.id})</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsFamilyModalOpen(true)}
+                className="py-2 px-3 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs transition cursor-pointer shrink-0"
+              >
+                Đổi nhóm
+              </button>
             </div>
 
             {/* Sound Toggle */}
@@ -1323,7 +1569,7 @@ export default function App() {
             <div className="bg-rose-50/50 p-4 rounded-3xl border border-rose-200">
               <h4 className="font-bold text-sm text-rose-900">Khôi phục mặc định</h4>
               <p className="text-xs text-rose-700/80 mt-0.5">
-                Xóa toàn bộ dữ liệu hiện tại và nạp lại dữ liệu mẫu Bubu & Dudu ban đầu
+                Xóa toàn bộ dữ liệu hiện tại của nhóm và nạp lại dữ liệu mẫu ban đầu
               </p>
               <button
                 onClick={() => {
@@ -1340,6 +1586,42 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* --- CONFIRM RESET ALL POINTS MODAL (Requirement 1) --- */}
+      {isResetConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-pop">
+          <div className="relative w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl border-4 border-amber-200 text-center">
+            <div className="w-20 h-20 mx-auto mb-2 flex items-center justify-center">
+              <img src="/stickers/walking_flag.png" alt="Reset" className="w-full h-full object-contain filter drop-shadow-sm" />
+            </div>
+            <h3 className="text-lg font-black text-stone-800">
+              Khởi Động Lại Điểm Từ Đầu?
+            </h3>
+            <p className="text-xs text-stone-500 mt-1.5 leading-relaxed">
+              Tất cả thành viên trong nhóm <strong>{currentFamily.name}</strong> sẽ được đưa về <strong>0 🐻 điểm gấu</strong> để bắt đầu chặng thi đua mới.
+              <br />
+              <span className="text-stone-400 mt-1 block">
+                (Các nhiệm vụ, voucher quà và thành viên vẫn được giữ nguyên đầy đủ).
+              </span>
+            </p>
+
+            <div className="flex gap-2.5 mt-5">
+              <button
+                onClick={() => setIsResetConfirmOpen(false)}
+                className="flex-1 py-2.5 rounded-xl border border-stone-200 font-bold text-xs text-stone-600 hover:bg-stone-50 cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={handleResetAllPoints}
+                className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs transition shadow-xs cursor-pointer"
+              >
+                Xác Nhận Đưa Về 0 🐻
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- MODALS --- */}
       <ActionConfirmModal
@@ -1386,6 +1668,38 @@ export default function App() {
         onSave={handleSaveMember}
         onDelete={handleDeleteMember}
         memberToEdit={memberToEdit}
+      />
+
+      <MemberManagementModal
+        isOpen={isMemberManagementOpen}
+        onClose={() => setIsMemberManagementOpen(false)}
+        members={members}
+        activeMemberId={activeMemberId}
+        onSelectMember={(id) => {
+          setActiveMemberId(id);
+          setIsMemberManagementOpen(false);
+          showToast('Đã chọn thành viên!');
+        }}
+        onOpenAddMember={() => {
+          setMemberToEdit(null);
+          setIsMemberModalOpen(true);
+        }}
+        onOpenEditMember={(member) => {
+          setMemberToEdit(member);
+          setIsMemberModalOpen(true);
+        }}
+        onDeleteMember={handleDeleteMember}
+        onQuickAdjustPoints={handleQuickAdjustPoints}
+      />
+
+      <FamilyModal
+        isOpen={isFamilyModalOpen}
+        onClose={() => setIsFamilyModalOpen(false)}
+        currentFamily={currentFamily}
+        families={families}
+        onSelectFamily={handleSelectFamily}
+        onCreateFamily={handleCreateFamily}
+        onJoinFamily={handleJoinFamily}
       />
     </div>
   );

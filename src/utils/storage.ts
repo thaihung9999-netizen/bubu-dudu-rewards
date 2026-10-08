@@ -1,20 +1,56 @@
-import type { Member, TaskItem, RewardItem, PointLog, RewardClaim } from '../types';
+import type { Member, TaskItem, RewardItem, PointLog, RewardClaim, FamilyGroup } from '../types';
 import { INITIAL_MEMBERS, INITIAL_TASKS, INITIAL_REWARDS } from './mockData';
 
-const STORAGE_KEYS = {
-  MEMBERS: 'bubu_dudu_members',
-  TASKS: 'bubu_dudu_tasks',
-  REWARDS: 'bubu_dudu_rewards',
-  LOGS: 'bubu_dudu_logs',
-  CLAIMS: 'bubu_dudu_claims',
-  ACTIVE_MEMBER_ID: 'bubu_dudu_active_member_id',
+export const DEFAULT_FAMILY: FamilyGroup = {
+  id: 'GAU-BUBU-DUDU',
+  name: 'Gia Đình Gấu Bubu & Dudu',
+  createdAt: 1728345600000,
+};
+
+const GLOBAL_KEYS = {
+  CURRENT_FAMILY_ID: 'bubu_dudu_current_family_id',
+  FAMILIES: 'bubu_dudu_families',
   SOUND_ENABLED: 'bubu_dudu_sound_enabled',
 };
 
-export const loadStoredData = () => {
+const getFamilyPrefix = (familyId: string) => {
+  return familyId === DEFAULT_FAMILY.id ? 'bubu_dudu' : `bubu_dudu_${familyId}`;
+};
+
+export const loadStoredFamilies = (): { currentFamilyId: string; families: FamilyGroup[] } => {
   try {
+    let families: FamilyGroup[] = JSON.parse(
+      localStorage.getItem(GLOBAL_KEYS.FAMILIES) || JSON.stringify([DEFAULT_FAMILY])
+    );
+    if (!families.some((f) => f.id === DEFAULT_FAMILY.id)) {
+      families.unshift(DEFAULT_FAMILY);
+    }
+    const currentFamilyId =
+      localStorage.getItem(GLOBAL_KEYS.CURRENT_FAMILY_ID) || DEFAULT_FAMILY.id;
+    return { currentFamilyId, families };
+  } catch (error) {
+    console.error('Error loading families', error);
+    return { currentFamilyId: DEFAULT_FAMILY.id, families: [DEFAULT_FAMILY] };
+  }
+};
+
+export const saveFamiliesToStorage = (families: FamilyGroup[], currentFamilyId: string) => {
+  localStorage.setItem(GLOBAL_KEYS.FAMILIES, JSON.stringify(families));
+  localStorage.setItem(GLOBAL_KEYS.CURRENT_FAMILY_ID, currentFamilyId);
+};
+
+export const loadStoredData = (familyId: string = DEFAULT_FAMILY.id) => {
+  try {
+    const prefix = getFamilyPrefix(familyId);
+    const membersKey = `${prefix}_members`;
+    const tasksKey = `${prefix}_tasks`;
+    const rewardsKey = `${prefix}_rewards`;
+    const logsKey = `${prefix}_logs`;
+    const claimsKey = `${prefix}_claims`;
+    const activeMemberIdKey = `${prefix}_active_member_id`;
+
     let members: Member[] = JSON.parse(
-      localStorage.getItem(STORAGE_KEYS.MEMBERS) || JSON.stringify(INITIAL_MEMBERS)
+      localStorage.getItem(membersKey) || JSON.stringify(INITIAL_MEMBERS)
     );
 
     // Ensure all members have sticker avatars assigned
@@ -30,23 +66,24 @@ export const loadStoredData = () => {
       }
       return m;
     });
-    localStorage.setItem(STORAGE_KEYS.MEMBERS, JSON.stringify(members));
+    localStorage.setItem(membersKey, JSON.stringify(members));
+
     const tasks: TaskItem[] = JSON.parse(
-      localStorage.getItem(STORAGE_KEYS.TASKS) || JSON.stringify(INITIAL_TASKS)
+      localStorage.getItem(tasksKey) || JSON.stringify(INITIAL_TASKS)
     );
     const rewards: RewardItem[] = JSON.parse(
-      localStorage.getItem(STORAGE_KEYS.REWARDS) || JSON.stringify(INITIAL_REWARDS)
+      localStorage.getItem(rewardsKey) || JSON.stringify(INITIAL_REWARDS)
     );
     const logs: PointLog[] = JSON.parse(
-      localStorage.getItem(STORAGE_KEYS.LOGS) || '[]'
+      localStorage.getItem(logsKey) || '[]'
     );
     const claims: RewardClaim[] = JSON.parse(
-      localStorage.getItem(STORAGE_KEYS.CLAIMS) || '[]'
+      localStorage.getItem(claimsKey) || '[]'
     );
     const activeMemberId =
-      localStorage.getItem(STORAGE_KEYS.ACTIVE_MEMBER_ID) || members[0]?.id || 'm1';
+      localStorage.getItem(activeMemberIdKey) || members[0]?.id || 'm1';
     const soundEnabled =
-      localStorage.getItem(STORAGE_KEYS.SOUND_ENABLED) !== 'false';
+      localStorage.getItem(GLOBAL_KEYS.SOUND_ENABLED) !== 'false';
 
     return { members, tasks, rewards, logs, claims, activeMemberId, soundEnabled };
   } catch (error) {
@@ -64,11 +101,25 @@ export const loadStoredData = () => {
 };
 
 export const saveToStorage = {
-  members: (members: Member[]) => localStorage.setItem(STORAGE_KEYS.MEMBERS, JSON.stringify(members)),
-  tasks: (tasks: TaskItem[]) => localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks)),
-  rewards: (rewards: RewardItem[]) => localStorage.setItem(STORAGE_KEYS.REWARDS, JSON.stringify(rewards)),
-  logs: (logs: PointLog[]) => localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs)),
-  claims: (claims: RewardClaim[]) => localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(claims)),
-  activeMemberId: (id: string) => localStorage.setItem(STORAGE_KEYS.ACTIVE_MEMBER_ID, id),
-  soundEnabled: (val: boolean) => localStorage.setItem(STORAGE_KEYS.SOUND_ENABLED, String(val)),
+  members: (members: Member[], familyId: string = DEFAULT_FAMILY.id) => {
+    localStorage.setItem(`${getFamilyPrefix(familyId)}_members`, JSON.stringify(members));
+  },
+  tasks: (tasks: TaskItem[], familyId: string = DEFAULT_FAMILY.id) => {
+    localStorage.setItem(`${getFamilyPrefix(familyId)}_tasks`, JSON.stringify(tasks));
+  },
+  rewards: (rewards: RewardItem[], familyId: string = DEFAULT_FAMILY.id) => {
+    localStorage.setItem(`${getFamilyPrefix(familyId)}_rewards`, JSON.stringify(rewards));
+  },
+  logs: (logs: PointLog[], familyId: string = DEFAULT_FAMILY.id) => {
+    localStorage.setItem(`${getFamilyPrefix(familyId)}_logs`, JSON.stringify(logs));
+  },
+  claims: (claims: RewardClaim[], familyId: string = DEFAULT_FAMILY.id) => {
+    localStorage.setItem(`${getFamilyPrefix(familyId)}_claims`, JSON.stringify(claims));
+  },
+  activeMemberId: (id: string, familyId: string = DEFAULT_FAMILY.id) => {
+    localStorage.setItem(`${getFamilyPrefix(familyId)}_active_member_id`, id);
+  },
+  soundEnabled: (val: boolean) => {
+    localStorage.setItem(GLOBAL_KEYS.SOUND_ENABLED, String(val));
+  },
 };
