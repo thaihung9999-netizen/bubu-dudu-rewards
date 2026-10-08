@@ -26,6 +26,7 @@ import { MemberModal } from './components/MemberModal';
 import { MemberManagementModal } from './components/MemberManagementModal';
 import { FamilyModal } from './components/FamilyModal';
 import { RewardRedeemModal } from './components/RewardRedeemModal';
+import { ClaimProfileModal } from './components/ClaimProfileModal';
 import {
   Sparkles,
   Plus,
@@ -46,6 +47,7 @@ import {
   Smile,
   Home,
   Users,
+  UserCheck,
 } from 'lucide-react';
 
 export default function App() {
@@ -86,6 +88,7 @@ export default function App() {
   const [isFamilyModalOpen, setIsFamilyModalOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [resetStreakToo, setResetStreakToo] = useState(true);
+  const [isClaimProfileOpen, setIsClaimProfileOpen] = useState(false);
 
   // Toast notification
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'warning' } | null>(null);
@@ -116,6 +119,7 @@ export default function App() {
         saveFamiliesToStorage(updated, queryFamilyId);
         activeFamily = newFam;
       }
+      setIsClaimProfileOpen(true);
     }
 
     setCurrentFamily(activeFamily);
@@ -222,6 +226,7 @@ export default function App() {
     const existing = families.find((f) => f.id === familyId);
     if (existing) {
       handleSelectFamily(existing);
+      setIsClaimProfileOpen(true);
       return;
     }
     const newFam: FamilyGroup = {
@@ -232,7 +237,22 @@ export default function App() {
     const updated = [...families, newFam];
     setFamilies(updated);
     handleSelectFamily(newFam);
-    showToast(`Đã tham gia nhóm gia đình "${newFam.name}"! 🏡`);
+    setIsClaimProfileOpen(true);
+    showToast(`Đã tham gia nhóm gia đình "${newFam.name}"! 🏡 Hãy chọn nhân vật của bạn nhé.`);
+  };
+
+  const handleSelectProfile = (memberId: string, updatedName?: string) => {
+    sound.playPop();
+    setActiveMemberId(memberId);
+    if (updatedName) {
+      setMembers((prev) =>
+        prev.map((m) => (m.id === memberId ? { ...m, name: updatedName } : m))
+      );
+      showToast(`Chào mừng ${updatedName} đã vào vai thành công! 🐻✨`);
+    } else {
+      const chosen = members.find((x) => x.id === memberId);
+      showToast(`Đã vào vai ${chosen ? chosen.name : 'thành viên'}! 🐻✨`);
+    }
   };
 
   // --- Handlers: Reset All Points to 0 (Requirement 1) ---
@@ -761,10 +781,18 @@ export default function App() {
                       setMemberToEdit(activeMember);
                       setIsMemberModalOpen(true);
                     }}
-                    className="text-amber-800/70 hover:text-amber-950 p-1 rounded-lg"
+                    className="text-amber-800/70 hover:text-amber-950 p-1 rounded-lg cursor-pointer"
                     title="Chỉnh sửa hồ sơ"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setIsClaimProfileOpen(true)}
+                    className="text-amber-950 bg-white/70 hover:bg-white text-[10px] font-black px-2 py-0.5 rounded-lg shadow-xs flex items-center gap-1 transition cursor-pointer"
+                    title="Chọn hoặc đổi nhân vật của bạn trên máy này"
+                  >
+                    <UserCheck className="w-3 h-3 text-amber-700" />
+                    <span>Tôi là ai?</span>
                   </button>
                 </div>
                 <p className="text-xs font-bold text-amber-900/80 bg-white/40 px-2 py-0.5 rounded-md inline-block mt-0.5">
@@ -1744,6 +1772,20 @@ export default function App() {
         onSelectFamily={handleSelectFamily}
         onCreateFamily={handleCreateFamily}
         onJoinFamily={handleJoinFamily}
+      />
+
+      <ClaimProfileModal
+        isOpen={isClaimProfileOpen}
+        onClose={() => setIsClaimProfileOpen(false)}
+        familyName={currentFamily.name}
+        familyId={currentFamily.id}
+        members={members}
+        currentMemberId={activeMemberId}
+        onSelectProfile={handleSelectProfile}
+        onOpenCreateMember={() => {
+          setMemberToEdit(null);
+          setIsMemberModalOpen(true);
+        }}
       />
     </div>
   );
