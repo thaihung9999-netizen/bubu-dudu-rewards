@@ -49,9 +49,22 @@ export const loadStoredData = (familyId: string = DEFAULT_FAMILY.id) => {
     const claimsKey = `${prefix}_claims`;
     const activeMemberIdKey = `${prefix}_active_member_id`;
 
-    let members: Member[] = JSON.parse(
-      localStorage.getItem(membersKey) || JSON.stringify(INITIAL_MEMBERS)
-    );
+    const storedMembers = localStorage.getItem(membersKey);
+    let members: Member[];
+    if (storedMembers) {
+      members = JSON.parse(storedMembers);
+    } else {
+      if (familyId === DEFAULT_FAMILY.id) {
+        members = JSON.parse(JSON.stringify(INITIAL_MEMBERS));
+      } else {
+        // Gia đình mới khởi đầu với 0 điểm và 0 streak
+        members = INITIAL_MEMBERS.map((m) => ({
+          ...m,
+          points: 0,
+          streak: 0,
+        }));
+      }
+    }
 
     // Ensure all members have sticker avatars assigned
     members = members.map((m) => {

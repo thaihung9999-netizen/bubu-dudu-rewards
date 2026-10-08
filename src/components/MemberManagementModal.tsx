@@ -13,6 +13,7 @@ interface MemberManagementModalProps {
   onOpenEditMember: (member: Member) => void;
   onDeleteMember: (id: string) => void;
   onQuickAdjustPoints: (member: Member, amount: number, reason: string) => void;
+  onResetMemberStreak?: (memberId: string) => void;
 }
 
 export const MemberManagementModal: React.FC<MemberManagementModalProps> = ({
@@ -25,6 +26,7 @@ export const MemberManagementModal: React.FC<MemberManagementModalProps> = ({
   onOpenEditMember,
   onDeleteMember,
   onQuickAdjustPoints,
+  onResetMemberStreak,
 }) => {
   const [adjustingMember, setAdjustingMember] = useState<Member | null>(null);
   const [adjustAmount, setAdjustAmount] = useState<number>(10);
@@ -65,7 +67,7 @@ export const MemberManagementModal: React.FC<MemberManagementModalProps> = ({
         </div>
 
         {/* Action Button: Add Member */}
-        <div className="mb-4">
+        <div className="mb-3">
           <button
             onClick={() => {
               onOpenAddMember();
@@ -75,6 +77,14 @@ export const MemberManagementModal: React.FC<MemberManagementModalProps> = ({
             <UserPlus className="w-4 h-4 stroke-[3]" />
             <span>+ Thêm Thành Viên Mới</span>
           </button>
+        </div>
+
+        {/* Guidance Tip */}
+        <div className="mb-4 p-3 rounded-2xl bg-amber-50/90 border border-amber-200 text-left flex items-start gap-2.5">
+          <span className="text-base shrink-0">💡</span>
+          <p className="text-[11px] text-amber-900 leading-relaxed font-medium">
+            <strong>Gia đình thực tế:</strong> Các bạn gấu <em>Bubu (Vợ iu)</em>, <em>Dudu (Chồng iu)</em> ban đầu là nhân vật mẫu. Bạn có thể bấm nút <strong>✏️ (Sửa)</strong> để đổi tên thành người nhà thật của mình, hoặc bấm <strong>🗑️ (Xóa)</strong> để xóa thành viên mẫu và bấm <strong>+ Thêm</strong> thành viên mới.
+          </p>
         </div>
 
         {/* Member List */}
@@ -235,6 +245,28 @@ export const MemberManagementModal: React.FC<MemberManagementModalProps> = ({
                   placeholder="Ví dụ: Thưởng nóng cuối tuần, bù điểm hôm qua..."
                   className="w-full px-3 py-1.5 rounded-xl border border-stone-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-300 bg-white"
                 />
+              </div>
+
+              {/* Streak Info & Quick Reset */}
+              <div className="pt-2 border-t border-stone-200 flex items-center justify-between">
+                <span className="text-[11px] text-stone-500 font-bold flex items-center gap-1">
+                  <Flame className="w-3.5 h-3.5 fill-orange-500 text-orange-500" />
+                  Chuỗi chăm chỉ: {adjustingMember.streak} ngày
+                </span>
+                {onResetMemberStreak && adjustingMember.streak > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm(`Đặt lại số ngày streak của ${adjustingMember.name} về 0?`)) {
+                        onResetMemberStreak(adjustingMember.id);
+                        setAdjustingMember({ ...adjustingMember, streak: 0 });
+                      }
+                    }}
+                    className="text-[10px] font-bold text-orange-700 bg-orange-100 hover:bg-orange-200 px-2 py-1 rounded-lg border border-orange-300 transition cursor-pointer"
+                  >
+                    🔥 Đặt lại streak về 0
+                  </button>
+                )}
               </div>
 
               <button

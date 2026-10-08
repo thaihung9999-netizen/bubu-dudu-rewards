@@ -85,6 +85,7 @@ export default function App() {
   const [isMemberManagementOpen, setIsMemberManagementOpen] = useState(false);
   const [isFamilyModalOpen, setIsFamilyModalOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [resetStreakToo, setResetStreakToo] = useState(true);
 
   // Toast notification
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'warning' } | null>(null);
@@ -237,22 +238,34 @@ export default function App() {
   // --- Handlers: Reset All Points to 0 (Requirement 1) ---
   const handleResetAllPoints = () => {
     sound.playEarnPoint();
-    setMembers((prev) => prev.map((m) => ({ ...m, points: 0 })));
+    setMembers((prev) =>
+      prev.map((m) => ({
+        ...m,
+        points: 0,
+        ...(resetStreakToo ? { streak: 0 } : {}),
+      }))
+    );
     const newLog: PointLog = {
       id: 'log_' + Date.now(),
       memberId: 'all',
       memberName: 'Tất cả gia đình',
       memberCharacter: 'bubu',
-      taskTitle: '🔄 Khởi động lại: Reset toàn bộ điểm về 0 🐻',
+      taskTitle: resetStreakToo
+        ? '🔄 Khởi động chu kỳ mới: Reset toàn bộ điểm & chuỗi streak về 0 🐻'
+        : '🔄 Khởi động chu kỳ mới: Reset toàn bộ điểm về 0 🐻',
       points: 0,
       type: 'earn',
-      note: 'Bắt đầu tuần thi đua mới',
+      note: 'Bắt đầu tuần thi đua mới từ đầu',
       timestamp: Date.now(),
       stickerImage: '/stickers/bubu_dudu_pair.png',
     };
     setLogs((prev) => [newLog, ...prev]);
     setIsResetConfirmOpen(false);
-    showToast('Đã đặt lại 0 điểm cho tất cả thành viên trong nhà! 🐻');
+    showToast(
+      resetStreakToo
+        ? 'Đã đặt lại 0 điểm & 0 ngày streak cho cả nhà! 🐻'
+        : 'Đã đặt lại 0 điểm cho tất cả thành viên trong nhà! 🐻'
+    );
   };
 
   // --- Handlers: Logging Task Action ---
@@ -418,26 +431,43 @@ export default function App() {
 
   // --- Handlers: Members CRUD & Quick Adjust (Requirement 2) ---
   const handleSaveMember = (
-    memberData: Omit<Member, 'id' | 'points' | 'streak'>,
+    memberData: Omit<Member, 'id'>,
     editId?: string
   ) => {
     sound.playPop();
     if (editId) {
       setMembers((prev) =>
-        prev.map((m) => (m.id === editId ? { ...m, ...memberData } : m))
+        prev.map((m) =>
+          m.id === editId
+            ? {
+                ...m,
+                ...memberData,
+                points: memberData.points !== undefined ? memberData.points : m.points,
+                streak: memberData.streak !== undefined ? memberData.streak : m.streak,
+              }
+            : m
+        )
       );
       showToast('Đã cập nhật thông tin thành viên!');
     } else {
       const newMember: Member = {
         ...memberData,
         id: 'member_' + Date.now(),
-        points: 0, // start at 0
-        streak: 1,
+        points: memberData.points ?? 0,
+        streak: memberData.streak ?? 0,
       };
       setMembers((prev) => [...prev, newMember]);
       setActiveMemberId(newMember.id);
       showToast(`Chào mừng ${newMember.name} gia nhập nhà Gấu! 🐻`);
     }
+  };
+
+  const handleResetMemberStreak = (memberId: string) => {
+    sound.playPop();
+    setMembers((prev) =>
+      prev.map((m) => (m.id === memberId ? { ...m, streak: 0 } : m))
+    );
+    showToast('Đã đặt lại chuỗi ngày streak về 0!');
   };
 
   const handleDeleteMember = (id: string) => {
@@ -1595,17 +1625,29 @@ export default function App() {
               <img src="/stickers/walking_flag.png" alt="Reset" className="w-full h-full object-contain filter drop-shadow-sm" />
             </div>
             <h3 className="text-lg font-black text-stone-800">
-              Khởi Động Lại Điểm Từ Đầu?
+              Khởi Động Lại Chu Kỳ Mới?
             </h3>
             <p className="text-xs text-stone-500 mt-1.5 leading-relaxed">
               Tất cả thành viên trong nhóm <strong>{currentFamily.name}</strong> sẽ được đưa về <strong>0 🐻 điểm gấu</strong> để bắt đầu chặng thi đua mới.
-              <br />
-              <span className="text-stone-400 mt-1 block">
-                (Các nhiệm vụ, voucher quà và thành viên vẫn được giữ nguyên đầy đủ).
-              </span>
             </p>
 
-            <div className="flex gap-2.5 mt-5">
+            <label className="flex items-center justify-center gap-2 mt-3 cursor-pointer select-none bg-amber-50/90 p-2.5 rounded-xl border border-amber-200 text-left">
+              <input
+                type="checkbox"
+                checked={resetStreakToo}
+                onChange={(e) => setResetStreakToo(e.target.checked)}
+                className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400 accent-amber-500 cursor-pointer"
+              />
+              <span className="text-xs font-bold text-amber-950">
+                Đồng thời reset số ngày streak (🔥 về 0)
+              </span>
+            </label>
+
+            <span className="text-[11px] text-stone-400 mt-2 block">
+              (Các việc cần làm, voucher quà và danh sách thành viên vẫn được giữ nguyên).
+            </span>
+
+            <div className="flex gap-2.5 mt-4">
               <button
                 onClick={() => setIsResetConfirmOpen(false)}
                 className="flex-1 py-2.5 rounded-xl border border-stone-200 font-bold text-xs text-stone-600 hover:bg-stone-50 cursor-pointer"
@@ -1668,6 +1710,7 @@ export default function App() {
         onSave={handleSaveMember}
         onDelete={handleDeleteMember}
         memberToEdit={memberToEdit}
+        existingMemberNames={members.map((m) => m.name)}
       />
 
       <MemberManagementModal
@@ -1690,6 +1733,7 @@ export default function App() {
         }}
         onDeleteMember={handleDeleteMember}
         onQuickAdjustPoints={handleQuickAdjustPoints}
+        onResetMemberStreak={handleResetMemberStreak}
       />
 
       <FamilyModal

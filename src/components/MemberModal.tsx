@@ -7,12 +7,11 @@ import { X, UserPlus, Trash2 } from 'lucide-react';
 interface MemberModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (member: Omit<Member, 'id' | 'points' | 'streak'>, editId?: string) => void;
+  onSave: (member: Omit<Member, 'id'>, editId?: string) => void;
   onDelete?: (id: string) => void;
   memberToEdit?: Member | null;
+  existingMemberNames?: string[];
 }
-
-
 
 export const MemberModal: React.FC<MemberModalProps> = ({
   isOpen,
@@ -20,12 +19,15 @@ export const MemberModal: React.FC<MemberModalProps> = ({
   onSave,
   onDelete,
   memberToEdit,
+  existingMemberNames = [],
 }) => {
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
   const [character, setCharacter] = useState<CharacterType>('bubu');
   const [avatarSticker, setAvatarSticker] = useState<string | undefined>(undefined);
   const [stickerFilter, setStickerFilter] = useState<'all' | 'bubu_solo' | 'dudu_solo' | 'couple'>('all');
+  const [points, setPoints] = useState<number>(0);
+  const [streak, setStreak] = useState<number>(0);
 
   useEffect(() => {
     if (memberToEdit) {
@@ -33,11 +35,15 @@ export const MemberModal: React.FC<MemberModalProps> = ({
       setRole(memberToEdit.role);
       setCharacter(memberToEdit.character);
       setAvatarSticker(memberToEdit.avatarSticker);
+      setPoints(memberToEdit.points ?? 0);
+      setStreak(memberToEdit.streak ?? 0);
     } else {
       setName('');
       setRole('');
       setCharacter('bubu');
       setAvatarSticker('/stickers/bubu_solo_hat.png');
+      setPoints(0);
+      setStreak(0);
     }
   }, [memberToEdit, isOpen]);
 
@@ -53,6 +59,8 @@ export const MemberModal: React.FC<MemberModalProps> = ({
         role: role.trim() || 'Thành viên nhà Gấu',
         character,
         avatarSticker,
+        points: Math.max(0, Number(points) || 0),
+        streak: Math.max(0, Number(streak) || 0),
       },
       memberToEdit?.id
     );
@@ -170,6 +178,18 @@ export const MemberModal: React.FC<MemberModalProps> = ({
               placeholder="Ví dụ: Vợ Bubu, Chồng Dudu, Bé Ben..."
               className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 font-medium"
             />
+            {!memberToEdit &&
+              name.trim() &&
+              existingMemberNames.some(
+                (n) => n.trim().toLowerCase() === name.trim().toLowerCase()
+              ) && (
+                <div className="mt-1.5 p-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-start gap-1.5">
+                  <span className="shrink-0">💡</span>
+                  <span>
+                    Nhóm đã có thành viên tên <strong>"{name.trim()}"</strong>. Bạn vẫn có thể tạo thêm, hoặc quay lại bấm nút <strong>✏️ Sửa</strong> ở thành viên cũ để đổi tên/vai trò.
+                  </span>
+                </div>
+              )}
           </div>
 
           <div>
@@ -183,6 +203,34 @@ export const MemberModal: React.FC<MemberModalProps> = ({
               placeholder="Ví dụ: Nữ hoàng việc nhà, Bé ngoan..."
               className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <div>
+              <label className="text-xs font-bold text-stone-600 block mb-1">
+                Điểm tích lũy 🐻:
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={points}
+                onChange={(e) => setPoints(Math.max(0, parseInt(e.target.value) || 0))}
+                className="w-full px-3 py-2 rounded-xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 font-bold text-amber-900"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-stone-600 block mb-1">
+                Chuỗi chăm chỉ (ngày) 🔥:
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={streak}
+                onChange={(e) => setStreak(Math.max(0, parseInt(e.target.value) || 0))}
+                className="w-full px-3 py-2 rounded-xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 font-bold text-orange-600"
+              />
+            </div>
           </div>
 
           <div className="flex gap-2 pt-2">
