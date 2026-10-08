@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import type {
   Member,
@@ -19,6 +19,7 @@ import {
 } from './utils/storage';
 import { sound } from './utils/sound';
 import { BUBU_DUDU_STICKERS } from './utils/stickers';
+import { cloudSync } from './utils/cloudSync';
 import { Mascot } from './components/Mascot';
 import { ActionConfirmModal } from './components/ActionConfirmModal';
 import { TaskModal } from './components/TaskModal';
@@ -50,6 +51,8 @@ import {
   Home,
   Users,
   UserCheck,
+  Cloud,
+  RefreshCw,
 } from 'lucide-react';
 
 export default function App() {
@@ -141,31 +144,135 @@ export default function App() {
     setDataLoaded(true);
   }, []);
 
-  // Save changes to localStorage scoped by currentFamily.id
+  // Cloud Sync state
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const isPullingRef = useRef<boolean>(false);
+  const lastLocalUpdateRef = useRef<number>(Date.now());
+
+  // Save changes to localStorage scoped by currentFamily.id & Cloud Sync
+  const syncWithCloud = async (forcePull = false) => {
+    if (!dataLoaded) return;
+    try {
+      setIsSyncing(true);
+      const cloudData = await cloudSync.pullFamily(currentFamily.id);
+      if (cloudData) {
+        const cloudTime = cloudData.updatedAt || 0;
+        const localTime = lastSyncedAt || 0;
+        if (forcePull || cloudTime > localTime) {
+          isPullingRef.current = true;
+          if (cloudData.family?.name && cloudData.family.name !== currentFamily.name) {
+            setCurrentFamily((prev) => ({ ...prev, name: cloudData.family!.name }));
+            setFamilies((prev) =>
+              prev.map((f) => (f.id === currentFamily.id ? { ...f, name: cloudData.family!.name } : f))
+            );
+          }
+          if (cloudData.members && cloudData.members.length > 0) {
+            setMembers(cloudData.members);
+            saveToStorage.members(cloudData.members, currentFamily.id);
+            setActiveMemberId((prev) => {
+              if (prev && cloudData.members.some((m) => m.id === prev)) return prev;
+              return cloudData.members[0].id;
+            });
+          }
+          if (cloudData.tasks) {
+            setTasks(cloudData.tasks);
+            saveToStorage.tasks(cloudData.tasks, currentFamily.id);
+          }
+          if (cloudData.rewards) {
+            setRewards(cloudData.rewards);
+            saveToStorage.rewards(cloudData.rewards, currentFamily.id);
+          }
+          if (cloudData.logs) {
+            setLogs(cloudData.logs);
+            saveToStorage.logs(cloudData.logs, currentFamily.id);
+          }
+          if (cloudData.claims) {
+            setClaims(cloudData.claims);
+            saveToStorage.claims(cloudData.claims, currentFamily.id);
+          }
+          setLastSyncedAt(cloudTime);
+          setTimeout(() => {
+            isPullingRef.current = false;
+          }, 600);
+          if (forcePull) {
+            showToast('Đã tải dữ liệu mới nhất từ đám mây! ☁️');
+          }
+          return;
+        }
+      } else {
+        // Cloud has no data for this family yet: push initial state to cloud
+        await cloudSync.pushFamily({
+          family: currentFamily,
+          members,
+          tasks,
+          rewards,
+          logs,
+          claims,
+          updatedAt: Date.now(),
+        });
+        setLastSyncedAt(Date.now());
+      }
+    } catch (err) {
+      console.warn('Sync with cloud error:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Sync on initial load and family switch
+  useEffect(() => {
+    if (!dataLoaded) return;
+    syncWithCloud(true);
+  }, [dataLoaded, currentFamily.id]);
+
+  // Periodic poll & focus / visibility sync (so phone and computer stay in sync automatically!)
+  useEffect(() => {
+    if (!dataLoaded) return;
+
+    // Check cloud every 5 seconds
+    const interval = setInterval(() => {
+      syncWithCloud(false);
+    }, 5000);
+
+    const handleFocus = () => {
+      syncWithCloud(false);
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+    };
+  }, [dataLoaded, currentFamily.id, lastSyncedAt]);
+
+  // Save changes locally AND push to Cloud
   useEffect(() => {
     if (!dataLoaded) return;
     saveToStorage.members(members, currentFamily.id);
-  }, [members, dataLoaded, currentFamily.id]);
-
-  useEffect(() => {
-    if (!dataLoaded) return;
     saveToStorage.tasks(tasks, currentFamily.id);
-  }, [tasks, dataLoaded, currentFamily.id]);
-
-  useEffect(() => {
-    if (!dataLoaded) return;
     saveToStorage.rewards(rewards, currentFamily.id);
-  }, [rewards, dataLoaded, currentFamily.id]);
-
-  useEffect(() => {
-    if (!dataLoaded) return;
     saveToStorage.logs(logs, currentFamily.id);
-  }, [logs, dataLoaded, currentFamily.id]);
-
-  useEffect(() => {
-    if (!dataLoaded) return;
     saveToStorage.claims(claims, currentFamily.id);
-  }, [claims, dataLoaded, currentFamily.id]);
+
+    // If local change made by user, push debounced to cloud!
+    if (!isPullingRef.current) {
+      const now = Date.now();
+      lastLocalUpdateRef.current = now;
+      cloudSync.debouncedPush({
+        family: currentFamily,
+        members,
+        tasks,
+        rewards,
+        logs,
+        claims,
+        updatedAt: now,
+      });
+      setLastSyncedAt(now);
+    }
+  }, [members, tasks, rewards, logs, claims, dataLoaded, currentFamily.id]);
 
   useEffect(() => {
     if (!dataLoaded) return;
@@ -695,26 +802,44 @@ export default function App() {
 
       {/* Main Container */}
       <div className="w-full max-w-2xl px-4 pt-4 sm:pt-6">
-        {/* Top Family ID Bar (Requirement 3: Multi-tenant Family ID) */}
-        <div className="mb-2 flex items-center justify-between px-2 text-xs">
+        {/* Top Family ID Bar with Cloud Sync */}
+        <div className="mb-2 flex items-center justify-between px-2 text-xs gap-1.5">
           <button
             onClick={() => setIsFamilyModalOpen(true)}
-            className="flex items-center gap-1.5 py-1 px-3 rounded-full bg-amber-100/80 hover:bg-amber-200/90 text-amber-900 font-extrabold border border-amber-300 shadow-2xs transition cursor-pointer"
+            className="flex items-center gap-1.5 py-1 px-2.5 sm:px-3 rounded-full bg-amber-100/80 hover:bg-amber-200/90 text-amber-900 font-extrabold border border-amber-300 shadow-2xs transition cursor-pointer max-w-[50%] sm:max-w-[60%] truncate"
             title="Bấm để đổi nhóm hoặc chia sẻ link"
           >
-            <Home className="w-3.5 h-3.5 text-amber-700" />
-            <span>{currentFamily.name}</span>
-            <span className="bg-amber-200/80 px-1.5 py-0.2 rounded-md font-mono text-[10px]">
-              ID: {currentFamily.id}
+            <Home className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+            <span className="truncate">{currentFamily.name}</span>
+            <span className="bg-amber-200/80 px-1.5 py-0.2 rounded-md font-mono text-[10px] shrink-0">
+              {currentFamily.id}
             </span>
           </button>
 
-          <button
-            onClick={() => setIsFamilyModalOpen(true)}
-            className="text-[11px] font-black text-amber-800 hover:text-amber-950 underline decoration-amber-400 cursor-pointer"
-          >
-            + Đổi / Tham Gia Nhóm
-          </button>
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              onClick={() => syncWithCloud(true)}
+              disabled={isSyncing}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition cursor-pointer ${
+                isSyncing
+                  ? 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 shadow-2xs'
+              }`}
+              title="Dữ liệu tự động đồng bộ qua đám mây giữa Điện thoại & Máy tính. Bấm để đồng bộ ngay!"
+            >
+              <Cloud className="w-3 h-3 text-emerald-600" />
+              <RefreshCw className={`w-2.5 h-2.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{isSyncing ? 'Đang sync...' : 'Đám Mây Tự Đồng Bộ'}</span>
+              <span className="sm:hidden">{isSyncing ? 'Sync...' : 'Sync ☁️'}</span>
+            </button>
+
+            <button
+              onClick={() => setIsFamilyModalOpen(true)}
+              className="text-[11px] font-black text-amber-800 hover:text-amber-950 underline decoration-amber-400 cursor-pointer shrink-0"
+            >
+              + Đổi Nhóm
+            </button>
+          </div>
         </div>
 
         {/* Top Header */}
@@ -1746,6 +1871,48 @@ export default function App() {
                   }`}
                 />
               </button>
+            </div>
+
+            {/* Real-time Cloud Sync Card */}
+            <div className="bg-gradient-to-br from-emerald-50 to-teal-50/70 p-4 rounded-3xl border-2 border-emerald-300 space-y-3 shadow-xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-emerald-500 text-white shadow-xs">
+                    <Cloud className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-black text-sm text-emerald-950">
+                        Đồng Bộ Đám Mây Đa Thiết Bị
+                      </h4>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-200/80 text-emerald-900 px-2 py-0.5 rounded-full">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping" />
+                        Đang hoạt động
+                      </span>
+                    </div>
+                    <p className="text-xs text-emerald-800/80 mt-0.5">
+                      Dữ liệu điểm, đổi quà, nhiệm vụ tự động liên thông thời gian thực giữa Máy tính & Điện thoại theo Mã Nhóm <strong>{currentFamily.id}</strong>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 bg-white/90 rounded-2xl border border-emerald-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+                <div>
+                  <span className="text-stone-500 block text-[11px]">Trạng thái đồng bộ:</span>
+                  <span className="font-bold text-stone-800">
+                    {lastSyncedAt ? `Lần cuối: ${new Date(lastSyncedAt).toLocaleTimeString('vi-VN')}` : 'Đã kết nối đám mây'}
+                  </span>
+                </div>
+                <button
+                  onClick={() => syncWithCloud(true)}
+                  disabled={isSyncing}
+                  className="w-full sm:w-auto py-2 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isSyncing ? 'Đang đồng bộ...' : 'Đồng Bộ Ngay Bây Giờ'}</span>
+                </button>
+              </div>
             </div>
 
             {/* Backup & Restore */}
