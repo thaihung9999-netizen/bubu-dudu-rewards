@@ -8,6 +8,7 @@ import type {
   RewardClaim,
   TaskCategory,
   FamilyGroup,
+  ClaimStatus,
 } from './types';
 import {
   DEFAULT_FAMILY,
@@ -27,6 +28,7 @@ import { MemberManagementModal } from './components/MemberManagementModal';
 import { FamilyModal } from './components/FamilyModal';
 import { RewardRedeemModal } from './components/RewardRedeemModal';
 import { ClaimProfileModal } from './components/ClaimProfileModal';
+import { RewardClaimsList } from './components/RewardClaimsList';
 import {
   Sparkles,
   Plus,
@@ -69,6 +71,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'tasks' | 'shop' | 'stickers' | 'logs' | 'leaderboard' | 'settings'>('tasks');
   const [taskFilter, setTaskFilter] = useState<'all' | 'positive' | 'negative' | TaskCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [shopSubTab, setShopSubTab] = useState<'rewards' | 'claims'>('rewards');
+  const [logFilter, setLogFilter] = useState<'all' | 'earn' | 'deduct' | 'reward_redeem'>('all');
 
   // Modals state
   const [isActionModalOpen, setIsActionModalOpen] = useState(false);
@@ -425,11 +429,14 @@ export default function App() {
       id: 'claim_' + Date.now(),
       memberId: member.id,
       memberName: member.name,
+      memberCharacter: member.character,
+      memberAvatar: member.avatarSticker,
       rewardId: reward.id,
       rewardTitle: reward.title,
+      rewardIcon: reward.icon,
       cost: reward.cost,
       timestamp: Date.now(),
-      status: 'used',
+      status: 'pending',
     };
     setClaims((prev) => [newClaim, ...prev]);
 
@@ -446,7 +453,55 @@ export default function App() {
     };
     setLogs((prev) => [newLog, ...prev]);
 
-    showToast(`Chúc mừng ${member.name} đã đổi thành công: ${reward.title}! 🎉`);
+    showToast(`Chúc mừng ${member.name} đã đổi thành công: ${reward.title}! 🎉 Hãy kiểm tra phiếu quà.`);
+  };
+
+  const handleUpdateClaimStatus = (
+    claimId: string,
+    newStatus: ClaimStatus,
+    note?: string
+  ) => {
+    sound.playPop();
+    const targetClaim = claims.find((c) => c.id === claimId);
+    if (!targetClaim) return;
+
+    if (newStatus === 'cancelled' && targetClaim.status !== 'cancelled') {
+      // Refund points to member
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.id === targetClaim.memberId
+            ? { ...m, points: m.points + targetClaim.cost }
+            : m
+        )
+      );
+      const refundLog: PointLog = {
+        id: 'log_' + Date.now(),
+        memberId: targetClaim.memberId,
+        memberName: targetClaim.memberName,
+        memberCharacter: targetClaim.memberCharacter || 'bubu',
+        taskTitle: `↩️ Hủy phiếu quà: Hoàn lại ${targetClaim.rewardTitle}`,
+        points: targetClaim.cost,
+        type: 'earn',
+        note: note || 'Hoàn lại điểm do phiếu quà bị hủy',
+        timestamp: Date.now(),
+      };
+      setLogs((prev) => [refundLog, ...prev]);
+      showToast(`Đã hủy phiếu quà và hoàn lại +${targetClaim.cost} 🐻 cho ${targetClaim.memberName}!`);
+    } else if (newStatus === 'completed') {
+      sound.playRedeem();
+      confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
+      showToast(`Chúc mừng! Đã trao quà "${targetClaim.rewardTitle}" cho ${targetClaim.memberName}! 🎉`);
+    } else {
+      showToast(`Đã chuyển phiếu quà sang trạng thái: Đang chuẩn bị ⏳`);
+    }
+
+    setClaims((prev) =>
+      prev.map((c) =>
+        c.id === claimId
+          ? { ...c, status: newStatus, updatedAt: Date.now(), note: note || c.note }
+          : c
+      )
+    );
   };
 
   // --- Handlers: Members CRUD & Quick Adjust (Requirement 2) ---
@@ -1097,7 +1152,57 @@ export default function App() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Sub-tab Switch: Rewards vs Claims */}
+            <div className="flex bg-stone-100 p-1 rounded-2xl gap-1 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setShopSubTab('rewards')}
+                className={`flex-1 py-2 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  shopSubTab === 'rewards'
+                    ? 'bg-white text-stone-900 shadow-xs font-black'
+                    : 'text-stone-500 hover:text-stone-800'
+                }`}
+              >
+                <Gift className="w-3.5 h-3.5 text-pink-500" />
+                <span>Kho Voucher Quà ({rewards.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShopSubTab('claims')}
+                className={`flex-1 py-2 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  shopSubTab === 'claims'
+                    ? 'bg-white text-stone-900 shadow-xs font-black'
+                    : 'text-stone-500 hover:text-stone-800'
+                }`}
+              >
+                <span>🎫 Phiếu Quà Đã Đổi</span>
+                {claims.length > 0 && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                      claims.some((c) => c.status === 'pending')
+                        ? 'bg-amber-500 text-white animate-pulse'
+                        : 'bg-stone-200 text-stone-700'
+                    }`}
+                  >
+                    {claims.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* SUB-VIEW 1: REWARD CLAIMS LIST */}
+            {shopSubTab === 'claims' && (
+              <RewardClaimsList
+                claims={claims}
+                onUpdateStatus={handleUpdateClaimStatus}
+                onOpenShop={() => setShopSubTab('rewards')}
+              />
+            )}
+
+            {/* SUB-VIEW 2: REWARD ITEMS GRID */}
+            {shopSubTab === 'rewards' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {rewards.map((r) => {
                 const canAfford = activeMember.points >= r.cost;
                 return (
@@ -1147,6 +1252,7 @@ export default function App() {
                 );
               })}
             </div>
+            )}
           </div>
         )}
 
@@ -1320,22 +1426,68 @@ export default function App() {
                   Nhật Ký Biến Động Điểm 📜
                 </h3>
                 <p className="text-xs text-stone-500">
-                  Ghi nhận đầy đủ minh bạch các lần cộng và trừ điểm
+                  Ghi nhận đầy đủ minh bạch các lần cộng, trừ điểm và đổi quà
                 </p>
               </div>
             </div>
 
-            {logs.length === 0 ? (
+            {/* Filter Pills */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs font-bold">
+              {[
+                { id: 'all', label: `Tất cả (${logs.length})` },
+                { id: 'earn', label: 'Cộng điểm (+)' },
+                { id: 'deduct', label: 'Trừ điểm (-)' },
+                {
+                  id: 'reward_redeem',
+                  label: `Đổi quà 🎁 (${logs.filter((l) => l.type === 'reward_redeem').length})`,
+                },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setLogFilter(f.id as any)}
+                  className={`py-1.5 px-3 rounded-xl whitespace-nowrap transition cursor-pointer ${
+                    logFilter === f.id
+                      ? 'bg-amber-500 text-white font-black shadow-xs'
+                      : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* If reward_redeem filter is selected, offer quick jump to claims pipeline */}
+            {logFilter === 'reward_redeem' && (
+              <div className="p-3 bg-pink-50 border border-pink-200 rounded-2xl flex items-center justify-between text-left">
+                <div>
+                  <h4 className="font-black text-xs text-pink-900">Tiến Trình Xử Lý Phiếu Quà</h4>
+                  <p className="text-[11px] text-pink-700">Xem trạng thái chuẩn bị và trao quà chi tiết</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setActiveTab('shop');
+                    setShopSubTab('claims');
+                  }}
+                  className="py-1.5 px-3 rounded-xl bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs transition cursor-pointer shadow-xs whitespace-nowrap"
+                >
+                  Mở Phiếu Quà 🎫
+                </button>
+              </div>
+            )}
+
+            {logs.filter((l) => logFilter === 'all' || l.type === logFilter).length === 0 ? (
               <div className="py-12 text-center bg-white rounded-3xl border border-stone-200">
                 <div className="w-20 h-20 mx-auto mb-2">
                   <img src="/stickers/cuddle_mochi.png" alt="Empty logs" className="w-full h-full object-contain" />
                 </div>
-                <p className="font-bold text-stone-600">Chưa có giao dịch nào được ghi nhận</p>
-                <p className="text-xs text-stone-400 mt-1">Hãy bấm vào một công việc để bắt đầu cộng điểm!</p>
+                <p className="font-bold text-stone-600">Không có giao dịch nào phù hợp</p>
+                <p className="text-xs text-stone-400 mt-1">Chưa có bản ghi nào trong mục này!</p>
               </div>
             ) : (
               <div className="space-y-2">
-                {logs.map((l) => {
+                {logs
+                  .filter((l) => logFilter === 'all' || l.type === logFilter)
+                  .map((l) => {
                   const isEarn = l.points > 0;
                   const dateStr = new Date(l.timestamp).toLocaleTimeString('vi-VN', {
                     hour: '2-digit',
@@ -1762,6 +1914,7 @@ export default function App() {
         onDeleteMember={handleDeleteMember}
         onQuickAdjustPoints={handleQuickAdjustPoints}
         onResetMemberStreak={handleResetMemberStreak}
+        onOpenResetAllModal={() => setIsResetConfirmOpen(true)}
       />
 
       <FamilyModal

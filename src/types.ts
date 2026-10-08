@@ -56,13 +56,21 @@ export interface RewardItem {
   stickerImage?: string;
 }
 
+export type ClaimStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+
 export interface RewardClaim {
   id: string;
   memberId: string;
   memberName: string;
+  memberCharacter?: CharacterType;
+  memberAvatar?: string;
   rewardId: string;
   rewardTitle: string;
+  rewardIcon?: string;
   cost: number;
   timestamp: number;
-  status: 'used' | 'pending';
+  status: ClaimStatus;
+  updatedAt?: number;
+  note?: string;
 }
+

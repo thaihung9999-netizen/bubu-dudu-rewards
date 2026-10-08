@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { Member } from '../types';
 import { Mascot } from './Mascot';
-import { X, UserPlus, Edit2, Trash2, Award, Flame, Plus, Minus } from 'lucide-react';
+import { X, UserPlus, Edit2, Trash2, Award, Flame, Plus, Minus, RotateCcw } from 'lucide-react';
 
 interface MemberManagementModalProps {
   isOpen: boolean;
@@ -14,6 +14,7 @@ interface MemberManagementModalProps {
   onDeleteMember: (id: string) => void;
   onQuickAdjustPoints: (member: Member, amount: number, reason: string) => void;
   onResetMemberStreak?: (memberId: string) => void;
+  onOpenResetAllModal?: () => void;
 }
 
 export const MemberManagementModal: React.FC<MemberManagementModalProps> = ({
@@ -27,6 +28,7 @@ export const MemberManagementModal: React.FC<MemberManagementModalProps> = ({
   onDeleteMember,
   onQuickAdjustPoints,
   onResetMemberStreak,
+  onOpenResetAllModal,
 }) => {
   const [adjustingMember, setAdjustingMember] = useState<Member | null>(null);
   const [adjustAmount, setAdjustAmount] = useState<number>(10);
@@ -66,17 +68,31 @@ export const MemberManagementModal: React.FC<MemberManagementModalProps> = ({
           </p>
         </div>
 
-        {/* Action Button: Add Member */}
-        <div className="mb-3">
+        {/* Action Buttons: Add Member & Reset All */}
+        <div className="grid grid-cols-2 gap-2 mb-3">
           <button
             onClick={() => {
               onOpenAddMember();
             }}
-            className="w-full py-2.5 px-4 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+            className="py-2.5 px-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
           >
             <UserPlus className="w-4 h-4 stroke-[3]" />
-            <span>+ Thêm Thành Viên Mới</span>
+            <span>+ Thêm Mới</span>
           </button>
+
+          {onOpenResetAllModal && (
+            <button
+              onClick={() => {
+                onClose();
+                onOpenResetAllModal();
+              }}
+              className="py-2.5 px-3 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-extrabold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+              title="Đưa điểm tất cả thành viên về 0 để bắt đầu chu kỳ mới"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset Tất Cả Về 0</span>
+            </button>
+          )}
         </div>
 
         {/* Guidance Tip */}
