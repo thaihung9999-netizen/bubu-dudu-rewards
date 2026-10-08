@@ -1,0 +1,1392 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import confetti from 'canvas-confetti';
+import type {
+  Member,
+  TaskItem,
+  RewardItem,
+  PointLog,
+  RewardClaim,
+  TaskCategory,
+} from './types';
+import { loadStoredData, saveToStorage } from './utils/storage';
+import { sound } from './utils/sound';
+import { BUBU_DUDU_STICKERS } from './utils/stickers';
+import { Mascot } from './components/Mascot';
+import { ActionConfirmModal } from './components/ActionConfirmModal';
+import { TaskModal } from './components/TaskModal';
+import { RewardModal } from './components/RewardModal';
+import { MemberModal } from './components/MemberModal';
+import { RewardRedeemModal } from './components/RewardRedeemModal';
+import {
+  Sparkles,
+  Plus,
+  Gift,
+  History,
+  Trophy,
+  Settings,
+  Search,
+  Volume2,
+  VolumeX,
+  RotateCcw,
+  Download,
+  Upload,
+  CheckCircle2,
+  Trash2,
+  Edit2,
+  Flame,
+  Smile,
+} from 'lucide-react';
+
+export default function App() {
+  // --- Persistent State ---
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [rewards, setRewards] = useState<RewardItem[]>([]);
+  const [logs, setLogs] = useState<PointLog[]>([]);
+  const [claims, setClaims] = useState<RewardClaim[]>([]);
+  const [activeMemberId, setActiveMemberId] = useState<string>('');
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+
+  // --- UI State ---
+  const [activeTab, setActiveTab] = useState<'tasks' | 'shop' | 'stickers' | 'logs' | 'leaderboard' | 'settings'>('tasks');
+  const [taskFilter, setTaskFilter] = useState<'all' | 'positive' | 'negative' | TaskCategory>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Modals state
+  const [isActionModalOpen, setIsActionModalOpen] = useState(false);
+  const [selectedTaskForAction, setSelectedTaskForAction] = useState<TaskItem | null>(null);
+
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [taskToEdit, setTaskToEdit] = useState<TaskItem | null>(null);
+
+  const [isRewardModalOpen, setIsRewardModalOpen] = useState(false);
+  const [isRewardRedeemOpen, setIsRewardRedeemOpen] = useState(false);
+  const [selectedRewardToRedeem, setSelectedRewardToRedeem] = useState<RewardItem | null>(null);
+
+  const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
+  const [memberToEdit, setMemberToEdit] = useState<Member | null>(null);
+
+  // Toast notification
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'warning' } | null>(null);
+
+  // Load initial data
+  useEffect(() => {
+    const loaded = loadStoredData();
+    setMembers(loaded.members);
+    setTasks(loaded.tasks);
+    setRewards(loaded.rewards);
+    setLogs(loaded.logs);
+    setClaims(loaded.claims);
+    setActiveMemberId(loaded.activeMemberId || loaded.members[0]?.id || '');
+    setSoundEnabled(loaded.soundEnabled);
+    sound.enabled = loaded.soundEnabled;
+    setDataLoaded(true);
+  }, []);
+
+  // Save changes to localStorage
+  useEffect(() => {
+    if (!dataLoaded) return;
+    saveToStorage.members(members);
+  }, [members, dataLoaded]);
+
+  useEffect(() => {
+    if (!dataLoaded) return;
+    saveToStorage.tasks(tasks);
+  }, [tasks, dataLoaded]);
+
+  useEffect(() => {
+    if (!dataLoaded) return;
+    saveToStorage.rewards(rewards);
+  }, [rewards, dataLoaded]);
+
+  useEffect(() => {
+    if (!dataLoaded) return;
+    saveToStorage.logs(logs);
+  }, [logs, dataLoaded]);
+
+  useEffect(() => {
+    if (!dataLoaded) return;
+    saveToStorage.claims(claims);
+  }, [claims, dataLoaded]);
+
+  useEffect(() => {
+    if (!dataLoaded) return;
+    saveToStorage.activeMemberId(activeMemberId);
+  }, [activeMemberId, dataLoaded]);
+
+  useEffect(() => {
+    if (!dataLoaded) return;
+    saveToStorage.soundEnabled(soundEnabled);
+    sound.enabled = soundEnabled;
+  }, [soundEnabled, dataLoaded]);
+
+  const activeMember = useMemo(() => {
+    return members.find((m) => m.id === activeMemberId) || members[0] || {
+      id: 'default',
+      name: 'Bubu',
+      character: 'bubu',
+      role: 'Thành viên',
+      points: 0,
+      streak: 1,
+    };
+  }, [members, activeMemberId]);
+
+  const showToast = (text: string, type: 'success' | 'warning' = 'success') => {
+    setToastMessage({ text, type });
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 3200);
+  };
+
+  // --- Handlers: Logging Task Action ---
+  const handleOpenActionModal = (task: TaskItem) => {
+    sound.playPop();
+    setSelectedTaskForAction(task);
+    setIsActionModalOpen(true);
+  };
+
+  const handleConfirmTaskAction = (task: TaskItem, member: Member, note: string) => {
+    const isEarn = task.points > 0;
+
+    // Trigger celebration effects
+    if (isEarn) {
+      sound.playEarnPoint();
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ['#FF69B4', '#FFA07A', '#FFD700', '#48BB78', '#38B2AC'],
+      });
+      showToast(`Tuyệt vời! ${member.name} được cộng +${task.points} 🐻 điểm gấu!`);
+    } else {
+      sound.playDeductPoint();
+      showToast(`Đã trừ ${task.points} 🐻 của ${member.name}. Cố gắng lên nhé!`, 'warning');
+    }
+
+    // Update member points
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.id === member.id
+          ? {
+              ...m,
+              points: Math.max(0, m.points + task.points),
+              streak: isEarn ? m.streak + 1 : m.streak,
+            }
+          : m
+      )
+    );
+
+    // Update task timesCompleted
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === task.id ? { ...t, timesCompleted: (t.timesCompleted || 0) + 1 } : t
+      )
+    );
+
+    // Create log entry
+    const newLog: PointLog = {
+      id: 'log_' + Date.now(),
+      memberId: member.id,
+      memberName: member.name,
+      memberCharacter: member.character,
+      taskId: task.id,
+      taskTitle: task.title,
+      points: task.points,
+      type: isEarn ? 'earn' : 'deduct',
+      note: note.trim() || undefined,
+      timestamp: Date.now(),
+      stickerImage: task.stickerImage,
+    };
+    setLogs((prev) => [newLog, ...prev]);
+
+    setIsActionModalOpen(false);
+  };
+
+  // --- Handlers: Tasks CRUD ---
+  const handleSaveTask = (taskData: Omit<TaskItem, 'id' | 'timesCompleted'>, editId?: string) => {
+    sound.playPop();
+    if (editId) {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === editId ? { ...t, ...taskData } : t))
+      );
+      showToast('Đã cập nhật công việc!');
+    } else {
+      const newTask: TaskItem = {
+        ...taskData,
+        id: 'task_' + Date.now(),
+        timesCompleted: 0,
+      };
+      setTasks((prev) => [newTask, ...prev]);
+      showToast('Đã thêm công việc mới!');
+    }
+  };
+
+  const handleDeleteTask = (id: string) => {
+    sound.playPop();
+    if (confirm('Bạn có chắc muốn xóa đầu việc này?')) {
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+      showToast('Đã xóa công việc!');
+    }
+  };
+
+  // --- Handlers: Rewards CRUD & Redeem ---
+  const handleSaveReward = (rewardData: Omit<RewardItem, 'id' | 'redeemedCount'>) => {
+    sound.playPop();
+    const newReward: RewardItem = {
+      ...rewardData,
+      id: 'reward_' + Date.now(),
+      redeemedCount: 0,
+    };
+    setRewards((prev) => [newReward, ...prev]);
+    showToast('Đã thêm voucher quà mới!');
+  };
+
+  const handleOpenRedeemModal = (reward: RewardItem) => {
+    sound.playPop();
+    setSelectedRewardToRedeem(reward);
+    setIsRewardRedeemOpen(true);
+  };
+
+  const handleConfirmRedeem = (reward: RewardItem, member: Member) => {
+    sound.playRedeem();
+    confetti({
+      particleCount: 120,
+      spread: 90,
+      origin: { y: 0.5 },
+      colors: ['#FFB6C1', '#FF69B4', '#FFD700', '#FF4500'],
+    });
+
+    // Deduct points
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.id === member.id ? { ...m, points: m.points - reward.cost } : m
+      )
+    );
+
+    // Update reward redeemed count
+    setRewards((prev) =>
+      prev.map((r) =>
+        r.id === reward.id ? { ...r, redeemedCount: (r.redeemedCount || 0) + 1 } : r
+      )
+    );
+
+    // Add claim & log
+    const newClaim: RewardClaim = {
+      id: 'claim_' + Date.now(),
+      memberId: member.id,
+      memberName: member.name,
+      rewardId: reward.id,
+      rewardTitle: reward.title,
+      cost: reward.cost,
+      timestamp: Date.now(),
+      status: 'used',
+    };
+    setClaims((prev) => [newClaim, ...prev]);
+
+    const newLog: PointLog = {
+      id: 'log_' + Date.now(),
+      memberId: member.id,
+      memberName: member.name,
+      memberCharacter: member.character,
+      taskTitle: `Đổi quà: ${reward.icon} ${reward.title}`,
+      points: -reward.cost,
+      type: 'reward_redeem',
+      timestamp: Date.now(),
+      stickerImage: reward.stickerImage,
+    };
+    setLogs((prev) => [newLog, ...prev]);
+
+    showToast(`Chúc mừng ${member.name} đã đổi thành công: ${reward.title}! 🎉`);
+  };
+
+  // --- Handlers: Members CRUD ---
+  const handleSaveMember = (
+    memberData: Omit<Member, 'id' | 'points' | 'streak'>,
+    editId?: string
+  ) => {
+    sound.playPop();
+    if (editId) {
+      setMembers((prev) =>
+        prev.map((m) => (m.id === editId ? { ...m, ...memberData } : m))
+      );
+      showToast('Đã cập nhật thông tin thành viên!');
+    } else {
+      const newMember: Member = {
+        ...memberData,
+        id: 'member_' + Date.now(),
+        points: 50, // bonus starter points
+        streak: 1,
+      };
+      setMembers((prev) => [...prev, newMember]);
+      setActiveMemberId(newMember.id);
+      showToast(`Chào mừng ${newMember.name} gia nhập nhà Gấu! 🐻`);
+    }
+  };
+
+  const handleDeleteMember = (id: string) => {
+    sound.playPop();
+    if (members.length <= 1) {
+      alert('Gia đình cần có ít nhất 1 thành viên!');
+      return;
+    }
+    setMembers((prev) => prev.filter((m) => m.id !== id));
+    if (activeMemberId === id) {
+      const remaining = members.filter((m) => m.id !== id);
+      if (remaining[0]) setActiveMemberId(remaining[0].id);
+    }
+    showToast('Đã xóa thành viên!');
+  };
+
+  // --- Revert / Undo Log Action ---
+  const handleUndoLog = (log: PointLog) => {
+    sound.playPop();
+    if (confirm(`Bạn muốn hoàn tác giao dịch "${log.taskTitle}"? Điểm sẽ được điều chỉnh lại.`)) {
+      setMembers((prev) =>
+        prev.map((m) => {
+          if (m.id === log.memberId) {
+            return {
+              ...m,
+              points: Math.max(0, m.points - log.points),
+            };
+          }
+          return m;
+        })
+      );
+      setLogs((prev) => prev.filter((l) => l.id !== log.id));
+      showToast('Đã hoàn tác giao dịch thành công!');
+    }
+  };
+
+  // --- Backup / Export / Import ---
+  const handleExportData = () => {
+    sound.playPop();
+    const fullData = { members, tasks, rewards, logs, claims, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(fullData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bubu_dudu_rewards_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Đã tải xuống file sao lưu!');
+  };
+
+  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (parsed.members && parsed.tasks) {
+          setMembers(parsed.members);
+          setTasks(parsed.tasks);
+          if (parsed.rewards) setRewards(parsed.rewards);
+          if (parsed.logs) setLogs(parsed.logs);
+          if (parsed.claims) setClaims(parsed.claims);
+          if (parsed.members[0]) setActiveMemberId(parsed.members[0].id);
+          sound.playEarnPoint();
+          showToast('Khôi phục dữ liệu thành công!');
+        } else {
+          alert('File sao lưu không đúng định dạng!');
+        }
+      } catch (err) {
+        alert('Lỗi đọc file JSON: ' + err);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // --- Filtered Tasks ---
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      // Query filter
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchesTitle = t.title.toLowerCase().includes(q);
+        const matchesDesc = t.description?.toLowerCase().includes(q) || false;
+        if (!matchesTitle && !matchesDesc) return false;
+      }
+      // Tab filter
+      if (taskFilter === 'all') return true;
+      if (taskFilter === 'positive') return t.points > 0;
+      if (taskFilter === 'negative') return t.points < 0;
+      return t.category === taskFilter;
+    });
+  }, [tasks, taskFilter, searchQuery]);
+
+  return (
+    <div className="min-h-screen bg-[#FFF9F3] text-stone-800 flex flex-col items-center pb-24 md:pb-12">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-5 z-50 animate-pop px-5 py-3 rounded-2xl bg-stone-900/90 text-white font-bold text-sm shadow-xl flex items-center gap-2.5 backdrop-blur-md">
+          {toastMessage.type === 'success' ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+          ) : (
+            <span className="text-lg">🥺</span>
+          )}
+          <span>{toastMessage.text}</span>
+        </div>
+      )}
+
+      {/* Main Container */}
+      <div className="w-full max-w-2xl px-4 pt-4 sm:pt-6">
+        {/* Top Header with Authentic Sticker Artwork */}
+        <header className="bg-white/85 backdrop-blur-md rounded-3xl p-3.5 sm:p-4 shadow-xs border-2 border-amber-100 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="relative w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center">
+              <img
+                src="/stickers/bubu_dudu_pair.png"
+                alt="Bubu & Dudu"
+                className="w-full h-full object-contain filter drop-shadow-sm hover:scale-105 transition-transform"
+              />
+            </div>
+            <div>
+              <h1 className="text-lg sm:text-xl font-black text-amber-950 tracking-tight flex items-center gap-1.5">
+                <span>Tiệm Tích Điểm Bubu & Dudu</span>
+                <span className="text-xs bg-pink-100 text-pink-700 font-extrabold px-2 py-0.5 rounded-full border border-pink-200">
+                  Sticker Edition ✨
+                </span>
+              </h1>
+              <p className="text-xs text-amber-800/80 font-bold">
+                Chăm việc nhà • Tích điểm gấu • Đổi quà cưng xỉu 🍯
+              </p>
+            </div>
+          </div>
+
+          {/* Sound & Member Actions */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setSoundEnabled(!soundEnabled);
+                sound.playPop();
+              }}
+              className="p-2.5 rounded-2xl bg-amber-50 text-amber-800 hover:bg-amber-100 transition border border-amber-200 cursor-pointer"
+              title={soundEnabled ? 'Tắt âm thanh' : 'Bật âm thanh'}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-stone-400" />}
+            </button>
+            <button
+              onClick={() => {
+                setMemberToEdit(null);
+                setIsMemberModalOpen(true);
+              }}
+              className="p-2.5 rounded-2xl bg-amber-500 text-white font-extrabold hover:bg-amber-600 transition shadow-sm cursor-pointer"
+              title="Thêm thành viên mới"
+            >
+              <Plus className="w-4 h-4 stroke-[3]" />
+            </button>
+          </div>
+        </header>
+
+        {/* Member Selector Strip */}
+        <div className="mt-3.5 flex items-center gap-2 overflow-x-auto pb-1.5 scrollbar-none">
+          {members.map((m) => {
+            const isActive = m.id === activeMemberId;
+            return (
+              <button
+                key={m.id}
+                onClick={() => {
+                  sound.playPop();
+                  setActiveMemberId(m.id);
+                }}
+                className={`flex items-center gap-2 py-1.5 px-3 rounded-2xl font-extrabold text-xs transition shrink-0 border-2 cursor-pointer ${
+                  isActive
+                    ? 'bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-200 scale-102'
+                    : 'bg-white text-stone-700 border-amber-100 hover:border-amber-300'
+                }`}
+              >
+                {m.avatarSticker ? (
+                  <img src={m.avatarSticker} alt={m.name} className="w-6 h-6 object-contain" />
+                ) : (
+                  <Mascot character={m.character} expression="happy" size={24} animate={false} />
+                )}
+                <span>{m.name}</span>
+                <span className={`px-1.5 py-0.5 rounded-lg text-[10px] font-black ${
+                  isActive ? 'bg-amber-600 text-amber-50' : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {m.points} 🐻
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Active Member Hero Banner */}
+        <div className="mt-3 bg-gradient-to-br from-amber-400 via-amber-300 to-orange-300 rounded-3xl p-5 sm:p-6 text-stone-900 shadow-lg shadow-amber-200/50 relative overflow-hidden border-2 border-amber-200">
+          <div className="absolute -right-4 -bottom-4 w-32 h-32 bg-white/20 rounded-full blur-xl pointer-events-none" />
+          <div className="absolute top-2 right-12 text-white/30 text-3xl select-none pointer-events-none">✨</div>
+
+          <div className="relative z-10 flex items-center justify-between">
+            <div className="flex items-center gap-3.5">
+              <div
+                onClick={() => {
+                  setMemberToEdit(activeMember);
+                  setIsMemberModalOpen(true);
+                }}
+                className="w-18 h-18 sm:w-20 sm:h-20 rounded-2xl bg-white/85 p-1.5 shadow-md border-2 border-white/90 flex items-center justify-center cursor-pointer hover:scale-105 transition"
+                title="Bấm để sửa thông tin thành viên"
+              >
+                {activeMember.avatarSticker ? (
+                  <img
+                    src={activeMember.avatarSticker}
+                    alt={activeMember.name}
+                    className="w-full h-full object-contain filter drop-shadow-sm"
+                  />
+                ) : (
+                  <Mascot character={activeMember.character} expression="happy" size={68} />
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl sm:text-2xl font-black text-amber-950">
+                    {activeMember.name}
+                  </h2>
+                  <button
+                    onClick={() => {
+                      setMemberToEdit(activeMember);
+                      setIsMemberModalOpen(true);
+                    }}
+                    className="text-amber-800/70 hover:text-amber-950 p-1 rounded-lg"
+                    title="Chỉnh sửa hồ sơ"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <p className="text-xs font-bold text-amber-900/80 bg-white/40 px-2 py-0.5 rounded-md inline-block mt-0.5">
+                  {activeMember.role}
+                </p>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="flex items-center gap-1 text-xs font-black bg-white/70 px-2 py-0.5 rounded-lg text-amber-900 shadow-xs">
+                    <Flame className="w-3.5 h-3.5 fill-orange-500 text-orange-500" />
+                    <span>{activeMember.streak} ngày chăm chỉ</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Big Bear Coin Balance */}
+            <div className="text-right">
+              <span className="text-[11px] font-black uppercase tracking-wider text-amber-900/70 block">
+                Hũ Mật Ong Hiện Có
+              </span>
+              <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                <span className="text-3xl sm:text-4xl font-black text-stone-900 tracking-tight">
+                  {activeMember.points}
+                </span>
+                <span className="text-2xl sm:text-3xl animate-bounce">🐻</span>
+              </div>
+              <button
+                onClick={() => setActiveTab('shop')}
+                className="mt-1.5 text-xs font-black text-amber-900 bg-white/80 hover:bg-white px-3 py-1 rounded-xl shadow-xs transition inline-flex items-center gap-1 cursor-pointer"
+              >
+                <Gift className="w-3.5 h-3.5 text-pink-600" />
+                <span>Đổi Quà Ngay</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Navigation Tabs (6 tabs including Sticker Collection) */}
+        <div className="mt-4 grid grid-cols-6 gap-1 bg-stone-200/60 p-1.5 rounded-2xl">
+          <button
+            onClick={() => {
+              sound.playPop();
+              setActiveTab('tasks');
+            }}
+            className={`py-2 px-1 rounded-xl text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-1 transition cursor-pointer ${
+              activeTab === 'tasks'
+                ? 'bg-white text-amber-900 shadow-sm'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-amber-500" />
+            <span className="hidden sm:inline">Nhiệm Vụ</span>
+            <span className="sm:hidden text-[11px]">Việc</span>
+          </button>
+
+          <button
+            onClick={() => {
+              sound.playPop();
+              setActiveTab('shop');
+            }}
+            className={`py-2 px-1 rounded-xl text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-1 transition cursor-pointer ${
+              activeTab === 'shop'
+                ? 'bg-white text-pink-600 shadow-sm'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <Gift className="w-4 h-4 text-pink-500" />
+            <span>Tiệm Quà</span>
+          </button>
+
+          <button
+            onClick={() => {
+              sound.playPop();
+              setActiveTab('stickers');
+            }}
+            className={`py-2 px-1 rounded-xl text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-1 transition cursor-pointer ${
+              activeTab === 'stickers'
+                ? 'bg-white text-emerald-600 shadow-sm'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <Smile className="w-4 h-4 text-emerald-500" />
+            <span>Sticker</span>
+          </button>
+
+          <button
+            onClick={() => {
+              sound.playPop();
+              setActiveTab('logs');
+            }}
+            className={`py-2 px-1 rounded-xl text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-1 transition cursor-pointer ${
+              activeTab === 'logs'
+                ? 'bg-white text-amber-900 shadow-sm'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <History className="w-4 h-4 text-blue-500" />
+            <span className="hidden sm:inline">Nhật Ký</span>
+            <span className="sm:hidden text-[11px]">Ký</span>
+          </button>
+
+          <button
+            onClick={() => {
+              sound.playPop();
+              setActiveTab('leaderboard');
+            }}
+            className={`py-2 px-1 rounded-xl text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-1 transition cursor-pointer ${
+              activeTab === 'leaderboard'
+                ? 'bg-white text-amber-900 shadow-sm'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <Trophy className="w-4 h-4 text-yellow-500" />
+            <span className="hidden sm:inline">Xếp Hạng</span>
+            <span className="sm:hidden text-[11px]">Hạng</span>
+          </button>
+
+          <button
+            onClick={() => {
+              sound.playPop();
+              setActiveTab('settings');
+            }}
+            className={`py-2 px-1 rounded-xl text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-1 transition cursor-pointer ${
+              activeTab === 'settings'
+                ? 'bg-white text-amber-900 shadow-sm'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <Settings className="w-4 h-4 text-stone-500" />
+            <span className="hidden sm:inline">Cài Đặt</span>
+            <span className="sm:hidden text-[11px]">Cài</span>
+          </button>
+        </div>
+
+        {/* ================= TAB 1: NHIỆM VỤ (TASKS) ================= */}
+        {activeTab === 'tasks' && (
+          <div className="mt-4 space-y-4">
+            {/* Search and Add Task Header */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Tìm việc nhà, thói quen..."
+                  className="w-full pl-9 pr-3 py-2 rounded-2xl bg-white border border-stone-200 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-300"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  setTaskToEdit(null);
+                  setIsTaskModalOpen(true);
+                }}
+                className="py-2 px-3.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs sm:text-sm flex items-center gap-1.5 shadow-sm transition shrink-0 cursor-pointer"
+              >
+                <Plus className="w-4 h-4 stroke-[3]" />
+                <span>Thêm Việc</span>
+              </button>
+            </div>
+
+            {/* Filter Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs font-bold">
+              {[
+                { id: 'all', label: 'Tất cả' },
+                { id: 'positive', label: '🟢 Thưởng (+)' },
+                { id: 'negative', label: '🔴 Nhắc/Phạt (-)' },
+                { id: 'housework', label: '🧹 Việc nhà' },
+                { id: 'habits', label: '🌱 Thói quen' },
+                { id: 'study_work', label: '📚 Học/Làm' },
+                { id: 'love_caring', label: '💖 Yêu thương' },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setTaskFilter(f.id as any)}
+                  className={`px-3 py-1.5 rounded-xl transition shrink-0 cursor-pointer ${
+                    taskFilter === f.id
+                      ? 'bg-stone-800 text-white shadow-xs'
+                      : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tasks List */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {filteredTasks.length === 0 ? (
+                <div className="col-span-full py-12 text-center bg-white rounded-3xl border border-stone-200">
+                  <div className="w-20 h-20 mx-auto mb-2">
+                    <img src="/stickers/grumpy_dudu.png" alt="No tasks" className="w-full h-full object-contain" />
+                  </div>
+                  <p className="font-bold text-stone-600">Không tìm thấy công việc nào!</p>
+                  <button
+                    onClick={() => {
+                      setTaskFilter('all');
+                      setSearchQuery('');
+                    }}
+                    className="mt-2 text-xs font-bold text-amber-600 hover:underline"
+                  >
+                    Xem tất cả việc
+                  </button>
+                </div>
+              ) : (
+                filteredTasks.map((t) => {
+                  const isPositive = t.points > 0;
+                  return (
+                    <div
+                      key={t.id}
+                      className={`group relative bg-white rounded-2xl p-3 border-2 transition-all hover:shadow-md flex items-center justify-between ${
+                        isPositive
+                          ? 'border-emerald-100 hover:border-emerald-300'
+                          : 'border-rose-100 hover:border-rose-300'
+                      }`}
+                    >
+                      {/* Left: Icon / Sticker Thumbnail & Title */}
+                      <div
+                        onClick={() => handleOpenActionModal(t)}
+                        className="flex items-center gap-2.5 flex-1 min-w-0 pr-2 cursor-pointer"
+                      >
+                        <div
+                          className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 p-1 relative ${
+                            isPositive ? 'bg-emerald-50/80 border border-emerald-100' : 'bg-rose-50/80 border border-rose-100'
+                          }`}
+                        >
+                          {t.stickerImage ? (
+                            <img src={t.stickerImage} alt="Sticker" className="w-full h-full object-contain filter drop-shadow-xs" />
+                          ) : (
+                            <span className="text-2xl">{t.icon}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-extrabold text-sm text-stone-800 truncate">
+                            {t.title}
+                          </h4>
+                          <p className="text-[11px] text-stone-500 truncate">
+                            {t.description || (isPositive ? 'Làm để được thưởng gấu' : 'Lỗi cần nhắc nhở')}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Right: Point Badge and Edit Actions */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => handleOpenActionModal(t)}
+                          className={`px-3 py-1.5 rounded-xl font-black text-xs flex items-center gap-1 shadow-xs transition active:scale-90 cursor-pointer ${
+                            isPositive
+                              ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                              : 'bg-rose-500 hover:bg-rose-600 text-white'
+                          }`}
+                          title={`Chấm điểm cho ${activeMember.name}`}
+                        >
+                          <span>{isPositive ? '+' : ''}{t.points}</span>
+                          <span className="text-[10px]">🐻</span>
+                        </button>
+
+                        {/* Edit dropdown */}
+                        <div className="flex items-center opacity-70 group-hover:opacity-100 transition">
+                          <button
+                            onClick={() => {
+                              setTaskToEdit(t);
+                              setIsTaskModalOpen(true);
+                            }}
+                            className="p-1 hover:text-amber-600 text-stone-400"
+                            title="Sửa công việc"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTask(t.id)}
+                            className="p-1 hover:text-rose-600 text-stone-400"
+                            title="Xóa"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ================= TAB 2: TIỆM ĐỔI QUÀ (SHOP) ================= */}
+        {activeTab === 'shop' && (
+          <div className="mt-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black text-stone-800 flex items-center gap-1.5">
+                  <Gift className="w-5 h-5 text-pink-500" />
+                  <span>Tiệm Voucher Bubu & Dudu</span>
+                </h3>
+                <p className="text-xs text-stone-500">
+                  Dùng điểm gấu tích lũy để đổi quà thực tế cho nhau
+                </p>
+              </div>
+              <button
+                onClick={() => setIsRewardModalOpen(true)}
+                className="py-2 px-3 rounded-2xl bg-pink-500 hover:bg-pink-600 text-white font-black text-xs flex items-center gap-1 shadow-sm cursor-pointer"
+              >
+                <Plus className="w-4 h-4 stroke-[3]" />
+                <span>Thêm Quà</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {rewards.map((r) => {
+                const canAfford = activeMember.points >= r.cost;
+                return (
+                  <div
+                    key={r.id}
+                    className="bg-white rounded-3xl p-4 border-2 border-pink-100 shadow-xs flex flex-col justify-between hover:border-pink-300 transition"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between">
+                        <div className="w-16 h-16 rounded-2xl bg-pink-50/80 p-1.5 border border-pink-100 flex items-center justify-center">
+                          {r.stickerImage ? (
+                            <img src={r.stickerImage} alt={r.title} className="w-full h-full object-contain filter drop-shadow-sm" />
+                          ) : (
+                            <span className="text-3xl">{r.icon}</span>
+                          )}
+                        </div>
+                        <span className="px-2.5 py-1 rounded-xl bg-amber-100 text-amber-900 font-black text-xs">
+                          {r.cost} 🐻
+                        </span>
+                      </div>
+                      <h4 className="font-black text-stone-800 text-base mt-2.5">
+                        {r.title}
+                      </h4>
+                      {r.description && (
+                        <p className="text-xs text-stone-500 mt-1 line-clamp-2">
+                          {r.description}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-stone-400">
+                        Đã đổi: {r.redeemedCount || 0} lần
+                      </span>
+                      <button
+                        onClick={() => handleOpenRedeemModal(r)}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition shadow-xs cursor-pointer ${
+                          canAfford
+                            ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-white hover:opacity-95'
+                            : 'bg-stone-100 text-stone-400 hover:bg-stone-200'
+                        }`}
+                      >
+                        {canAfford ? 'Đổi Quà' : 'Chưa Đủ Điểm'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ================= TAB 3: BỘ SƯU TẬP STICKER BUBU & DUDU ================= */}
+        {activeTab === 'stickers' && (
+          <div className="mt-4 space-y-6">
+            <div className="text-center py-1">
+              <h3 className="text-base sm:text-lg font-black text-stone-800 flex items-center justify-center gap-1.5">
+                <span>Bộ Sưu Tập Sticker Bubu & Dudu 🐻🤍</span>
+              </h3>
+              <p className="text-xs text-stone-500 mt-0.5">
+                Chạm để xem hiệu ứng hoạt họa và bấm đặt làm Avatar cho thành viên!
+              </p>
+            </div>
+
+            {/* SECTION 1: BUBU SOLO */}
+            <div className="bg-white/80 rounded-3xl p-4 border-2 border-pink-100 shadow-xs">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xl">🤍</span>
+                <div>
+                  <h4 className="font-black text-sm text-stone-800">Nhân Vật Bubu (Một Mình)</h4>
+                  <p className="text-[11px] text-stone-400">Gấu trắng tinh nghịch, điệu đà, ngọt ngào</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {BUBU_DUDU_STICKERS.filter(s => s.tag === 'bubu_solo').map((stk) => (
+                  <div
+                    key={stk.id}
+                    className="bg-pink-50/40 rounded-2xl p-3 border border-pink-200/70 flex flex-col items-center text-center group hover:shadow-sm transition"
+                  >
+                    <div
+                      onClick={() => {
+                        sound.playEarnPoint();
+                        confetti({
+                          particleCount: 50,
+                          spread: 60,
+                          origin: { y: 0.7 },
+                          colors: ['#FFB6C1', '#FF69B4', '#FFF0F5'],
+                        });
+                        showToast(`Bubu: "${stk.name}"! 🤍`);
+                      }}
+                      className="w-24 h-24 p-1 flex items-center justify-center cursor-pointer group-hover:scale-110 transition-transform"
+                    >
+                      <img src={stk.url} alt={stk.name} className="w-full h-full object-contain filter drop-shadow-sm" />
+                    </div>
+                    <h5 className="font-extrabold text-xs text-stone-800 mt-1.5">{stk.name}</h5>
+                    <p className="text-[10px] text-stone-400 mt-0.5 line-clamp-2">{stk.description}</p>
+                    <button
+                      onClick={() => {
+                        sound.playPop();
+                        setMembers(prev => prev.map(m => m.id === activeMember.id ? { ...m, avatarSticker: stk.url, character: 'bubu' } : m));
+                        showToast(`Đã đặt "${stk.name}" làm Avatar cho ${activeMember.name}! ✨`);
+                      }}
+                      className="mt-2 text-[11px] font-black py-1 px-2.5 rounded-lg bg-pink-500 hover:bg-pink-600 text-white transition cursor-pointer shadow-2xs"
+                    >
+                      Đặt làm Avatar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* SECTION 2: DUDU SOLO */}
+            <div className="bg-white/80 rounded-3xl p-4 border-2 border-amber-100 shadow-xs">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xl">🤎</span>
+                <div>
+                  <h4 className="font-black text-sm text-stone-800">Nhân Vật Dudu (Một Mình)</h4>
+                  <p className="text-[11px] text-stone-400">Gấu nâu ấm áp, chăm chỉ, bĩu môi hờn dỗi</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {BUBU_DUDU_STICKERS.filter(s => s.tag === 'dudu_solo').map((stk) => (
+                  <div
+                    key={stk.id}
+                    className="bg-amber-50/40 rounded-2xl p-3 border border-amber-200/70 flex flex-col items-center text-center group hover:shadow-sm transition"
+                  >
+                    <div
+                      onClick={() => {
+                        sound.playDeductPoint();
+                        confetti({
+                          particleCount: 50,
+                          spread: 60,
+                          origin: { y: 0.7 },
+                          colors: ['#D2B48C', '#F4A460', '#FFD700'],
+                        });
+                        showToast(`Dudu: "${stk.name}"! 🤎`);
+                      }}
+                      className="w-24 h-24 p-1 flex items-center justify-center cursor-pointer group-hover:scale-110 transition-transform"
+                    >
+                      <img src={stk.url} alt={stk.name} className="w-full h-full object-contain filter drop-shadow-sm" />
+                    </div>
+                    <h5 className="font-extrabold text-xs text-stone-800 mt-1.5">{stk.name}</h5>
+                    <p className="text-[10px] text-stone-400 mt-0.5 line-clamp-2">{stk.description}</p>
+                    <button
+                      onClick={() => {
+                        sound.playPop();
+                        setMembers(prev => prev.map(m => m.id === activeMember.id ? { ...m, avatarSticker: stk.url, character: 'dudu' } : m));
+                        showToast(`Đã đặt "${stk.name}" làm Avatar cho ${activeMember.name}! ✨`);
+                      }}
+                      className="mt-2 text-[11px] font-black py-1 px-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition cursor-pointer shadow-2xs"
+                    >
+                      Đặt làm Avatar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* SECTION 3: COUPLE STICKERS */}
+            <div className="bg-white/80 rounded-3xl p-4 border-2 border-rose-100 shadow-xs">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xl">💕</span>
+                <div>
+                  <h4 className="font-black text-sm text-stone-800">Cặp Đôi Bubu & Dudu Bên Nhau</h4>
+                  <p className="text-[11px] text-stone-400">Những khoảnh khắc ngọt ngào & dọn nhà cùng nhau</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                {BUBU_DUDU_STICKERS.filter(s => s.tag === 'couple').map((stk) => (
+                  <div
+                    key={stk.id}
+                    onClick={() => {
+                      sound.playEarnPoint();
+                      confetti({
+                        particleCount: 50,
+                        spread: 60,
+                        origin: { y: 0.7 },
+                        colors: ['#FF69B4', '#FFA07A', '#FFD700'],
+                      });
+                      showToast(`Cặp đôi: "${stk.name}"! 💕`);
+                    }}
+                    className="bg-rose-50/30 rounded-2xl p-2.5 border border-rose-200/50 flex flex-col items-center text-center group hover:shadow-xs transition cursor-pointer"
+                  >
+                    <div className="w-20 h-20 p-1 flex items-center justify-center group-hover:scale-105 transition-transform">
+                      <img src={stk.url} alt={stk.name} className="w-full h-full object-contain filter drop-shadow-xs" />
+                    </div>
+                    <h5 className="font-extrabold text-[11px] text-stone-800 mt-1 line-clamp-1">{stk.name}</h5>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        sound.playPop();
+                        setMembers(prev => prev.map(m => m.id === activeMember.id ? { ...m, avatarSticker: stk.url } : m));
+                        showToast(`Đã đặt "${stk.name}" làm Avatar cho ${activeMember.name}! ✨`);
+                      }}
+                      className="mt-1.5 text-[10px] font-bold py-0.5 px-2 rounded-md bg-rose-100 hover:bg-rose-200 text-rose-800 transition cursor-pointer"
+                    >
+                      Làm Avatar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Poster Preview */}
+            <div className="bg-amber-50 rounded-3xl p-4 border border-amber-200 text-center flex flex-col items-center">
+              <h4 className="font-extrabold text-xs text-amber-900 mb-2">Ảnh gốc bộ Sticker Bubu & Dudu</h4>
+              <div className="w-full max-w-sm rounded-2xl overflow-hidden border border-amber-200 shadow-xs">
+                <img src="/stickers/original_pack.png" alt="Sticker Pack" className="w-full h-auto object-cover" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= TAB 4: NHẬT KÝ & LỊCH SỬ (LOGS) ================= */}
+        {activeTab === 'logs' && (
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black text-stone-800">
+                  Nhật Ký Biến Động Điểm 📜
+                </h3>
+                <p className="text-xs text-stone-500">
+                  Ghi nhận đầy đủ minh bạch các lần cộng và trừ điểm
+                </p>
+              </div>
+            </div>
+
+            {logs.length === 0 ? (
+              <div className="py-12 text-center bg-white rounded-3xl border border-stone-200">
+                <div className="w-20 h-20 mx-auto mb-2">
+                  <img src="/stickers/cuddle_mochi.png" alt="Empty logs" className="w-full h-full object-contain" />
+                </div>
+                <p className="font-bold text-stone-600">Chưa có giao dịch nào được ghi nhận</p>
+                <p className="text-xs text-stone-400 mt-1">Hãy bấm vào một công việc để bắt đầu cộng điểm!</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {logs.map((l) => {
+                  const isEarn = l.points > 0;
+                  const dateStr = new Date(l.timestamp).toLocaleTimeString('vi-VN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  }) + ' • ' + new Date(l.timestamp).toLocaleDateString('vi-VN');
+
+                  return (
+                    <div
+                      key={l.id}
+                      className="bg-white rounded-2xl p-3 border border-stone-200 flex items-center justify-between shadow-xs"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-50 p-1 flex items-center justify-center shrink-0">
+                          {l.stickerImage ? (
+                            <img src={l.stickerImage} alt="Sticker" className="w-full h-full object-contain" />
+                          ) : (
+                            <Mascot character={l.memberCharacter} size={32} animate={false} />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-extrabold text-xs text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                              {l.memberName}
+                            </span>
+                            <span className="font-bold text-xs sm:text-sm text-stone-800">
+                              {l.taskTitle}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[11px] text-stone-400">{dateStr}</span>
+                            {l.note && (
+                              <span className="text-[11px] text-amber-700 italic">
+                                "{l.note}"
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className={`font-black text-xs sm:text-sm px-2.5 py-1 rounded-xl ${
+                            isEarn
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : 'bg-rose-50 text-rose-700'
+                          }`}
+                        >
+                          {isEarn ? '+' : ''}{l.points} 🐻
+                        </span>
+                        <button
+                          onClick={() => handleUndoLog(l)}
+                          className="p-1.5 text-stone-300 hover:text-stone-600 rounded-lg"
+                          title="Hoàn tác giao dịch này"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ================= TAB 5: BẢNG XẾP HẠNG (LEADERBOARD) ================= */}
+        {activeTab === 'leaderboard' && (
+          <div className="mt-4 space-y-4">
+            <div className="text-center py-1">
+              <h3 className="text-lg font-black text-stone-800 flex items-center justify-center gap-2">
+                <Trophy className="w-5 h-5 text-yellow-500" />
+                <span>Bảng Phong Thần Nhà Gấu</span>
+              </h3>
+              <p className="text-xs text-stone-500">
+                Gia đình cùng thi đua chăm ngoan và yêu thương
+              </p>
+            </div>
+
+            {/* Podium Ranking */}
+            <div className="space-y-2.5">
+              {[...members]
+                .sort((a, b) => b.points - a.points)
+                .map((m, index) => {
+                  const medals = ['🥇 Quán Quân', '🥈 Á Quân', '🥉 Hạng Ba'];
+                  const isTop = index === 0;
+
+                  return (
+                    <div
+                      key={m.id}
+                      className={`rounded-3xl p-4 border-2 flex items-center justify-between transition ${
+                        isTop
+                          ? 'bg-gradient-to-r from-amber-100 to-amber-50 border-amber-300 shadow-md'
+                          : 'bg-white border-stone-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-14 h-14 rounded-2xl bg-white p-1.5 border border-stone-200 shadow-xs flex items-center justify-center">
+                          {m.avatarSticker ? (
+                            <img src={m.avatarSticker} alt={m.name} className="w-full h-full object-contain filter drop-shadow-xs" />
+                          ) : (
+                            <Mascot character={m.character} expression={isTop ? 'celebrate' : 'happy'} size={48} />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-black text-xs text-amber-800">
+                              {medals[index] || `#${index + 1}`}
+                            </span>
+                            <h4 className="font-black text-base text-stone-800">
+                              {m.name}
+                            </h4>
+                          </div>
+                          <p className="text-xs text-stone-500">{m.role}</p>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-xl font-black text-stone-800">
+                          {m.points} <span className="text-sm">🐻</span>
+                        </div>
+                        <span className="text-[11px] font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md inline-block">
+                          🔥 {m.streak} ngày streak
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+
+            {/* General Stats */}
+            <div className="grid grid-cols-3 gap-2.5 pt-2">
+              <div className="bg-white p-3 rounded-2xl border border-stone-200 text-center">
+                <span className="text-xl">🧹</span>
+                <div className="text-base font-black text-stone-800 mt-1">
+                  {tasks.reduce((acc, t) => acc + (t.timesCompleted || 0), 0)}
+                </div>
+                <span className="text-[10px] text-stone-400 font-bold uppercase">Việc Đã Làm</span>
+              </div>
+              <div className="bg-white p-3 rounded-2xl border border-stone-200 text-center">
+                <span className="text-xl">🎁</span>
+                <div className="text-base font-black text-stone-800 mt-1">
+                  {claims.length}
+                </div>
+                <span className="text-[10px] text-stone-400 font-bold uppercase">Quà Đã Đổi</span>
+              </div>
+              <div className="bg-white p-3 rounded-2xl border border-stone-200 text-center">
+                <span className="text-xl">🍯</span>
+                <div className="text-base font-black text-stone-800 mt-1">
+                  {members.reduce((acc, m) => acc + m.points, 0)}
+                </div>
+                <span className="text-[10px] text-stone-400 font-bold uppercase">Tổng Điểm Gấu</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= TAB 6: CÀI ĐẶT & SAO LƯU (SETTINGS) ================= */}
+        {activeTab === 'settings' && (
+          <div className="mt-4 space-y-4">
+            <div>
+              <h3 className="text-base font-black text-stone-800">
+                ⚙️ Cài Đặt & Sao Lưu Dữ Liệu
+              </h3>
+              <p className="text-xs text-stone-500">
+                Tùy chỉnh trải nghiệm và bảo vệ dữ liệu điểm tích lũy của gia đình
+              </p>
+            </div>
+
+            {/* Sound Toggle */}
+            <div className="bg-white p-4 rounded-3xl border border-stone-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-amber-50 text-amber-700">
+                  <Volume2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-stone-800">Âm thanh vui nhộn</h4>
+                  <p className="text-xs text-stone-400">Tiếng leng keng cute khi cộng trừ điểm và đổi quà</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                className={`w-12 h-7 rounded-full transition-colors relative cursor-pointer ${
+                  soundEnabled ? 'bg-amber-500' : 'bg-stone-300'
+                }`}
+              >
+                <div
+                  className={`w-5 h-5 rounded-full bg-white absolute top-1 transition-transform ${
+                    soundEnabled ? 'right-1' : 'left-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Backup & Restore */}
+            <div className="bg-white p-4 rounded-3xl border border-stone-200 space-y-3">
+              <h4 className="font-bold text-sm text-stone-800">Sao lưu & Đồng bộ thiết bị</h4>
+              <p className="text-xs text-stone-500">
+                Xuất file dữ liệu để gửi sang điện thoại khác hoặc lưu trữ an toàn
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleExportData}
+                  className="flex-1 py-2.5 px-3 rounded-2xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Xuất File Backup</span>
+                </button>
+                <label className="flex-1 py-2.5 px-3 rounded-2xl border border-stone-200 hover:bg-stone-50 text-stone-700 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer">
+                  <Upload className="w-4 h-4" />
+                  <span>Khôi Phục Backup</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleImportData}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Reset to Default */}
+            <div className="bg-rose-50/50 p-4 rounded-3xl border border-rose-200">
+              <h4 className="font-bold text-sm text-rose-900">Khôi phục mặc định</h4>
+              <p className="text-xs text-rose-700/80 mt-0.5">
+                Xóa toàn bộ dữ liệu hiện tại và nạp lại dữ liệu mẫu Bubu & Dudu ban đầu
+              </p>
+              <button
+                onClick={() => {
+                  if (confirm('Bạn có chắc chắn muốn cài lại từ đầu? Mọi điểm hiện tại sẽ bị xóa.')) {
+                    localStorage.clear();
+                    window.location.reload();
+                  }
+                }}
+                className="mt-3 py-2 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition cursor-pointer"
+              >
+                Đặt Lại Tất Cả
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* --- MODALS --- */}
+      <ActionConfirmModal
+        isOpen={isActionModalOpen}
+        onClose={() => setIsActionModalOpen(false)}
+        onConfirm={handleConfirmTaskAction}
+        task={selectedTaskForAction}
+        member={activeMember}
+      />
+
+      <TaskModal
+        isOpen={isTaskModalOpen}
+        onClose={() => {
+          setIsTaskModalOpen(false);
+          setTaskToEdit(null);
+        }}
+        onSave={handleSaveTask}
+        taskToEdit={taskToEdit}
+      />
+
+      <RewardModal
+        isOpen={isRewardModalOpen}
+        onClose={() => setIsRewardModalOpen(false)}
+        onSave={handleSaveReward}
+      />
+
+      <RewardRedeemModal
+        isOpen={isRewardRedeemOpen}
+        onClose={() => {
+          setIsRewardRedeemOpen(false);
+          setSelectedRewardToRedeem(null);
+        }}
+        onConfirm={handleConfirmRedeem}
+        reward={selectedRewardToRedeem}
+        member={activeMember}
+      />
+
+      <MemberModal
+        isOpen={isMemberModalOpen}
+        onClose={() => {
+          setIsMemberModalOpen(false);
+          setMemberToEdit(null);
+        }}
+        onSave={handleSaveMember}
+        onDelete={handleDeleteMember}
+        memberToEdit={memberToEdit}
+      />
+    </div>
+  );
+}
