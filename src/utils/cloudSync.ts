@@ -89,3 +89,95 @@ export const cloudSync = {
     }
   },
 };
+
+/**
+ * Smart conflict resolution: merge local and remote cloud payloads
+ * to prevent dropped points, chore logs, claims, or members during concurrent edits.
+ */
+export const mergeFamilyData = (
+  local: CloudFamilyPayload,
+  remote: CloudFamilyPayload
+): CloudFamilyPayload => {
+  const isRemoteNewer = (remote.updatedAt || 0) >= (local.updatedAt || 0);
+  const base = isRemoteNewer ? remote : local;
+  const other = isRemoteNewer ? local : remote;
+
+  // 1. Merge logs: union of all unique logs by log.id, sorted descending by timestamp
+  const logMap = new Map<string, PointLog>();
+  [...(local.logs || []), ...(remote.logs || [])].forEach((l) => {
+    if (l && l.id) logMap.set(l.id, l);
+  });
+  const mergedLogs = Array.from(logMap.values()).sort(
+    (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+  );
+
+  // 2. Merge claims: union of all unique claims by claim.id, preferring advanced status
+  const claimMap = new Map<string, RewardClaim>();
+  const statusWeight: Record<string, number> = {
+    pending: 1,
+    in_progress: 2,
+    cancelled: 3,
+    completed: 4,
+  };
+
+  [...(other.claims || []), ...(base.claims || [])].forEach((c) => {
+    if (!c || !c.id) return;
+    const existing = claimMap.get(c.id);
+    if (!existing) {
+      claimMap.set(c.id, c);
+    } else {
+      const existingWeight = statusWeight[existing.status] || 0;
+      const cWeight = statusWeight[c.status] || 0;
+      if (cWeight > existingWeight || (c.updatedAt || 0) > (existing.updatedAt || 0)) {
+        claimMap.set(c.id, c);
+      }
+    }
+  });
+  const mergedClaims = Array.from(claimMap.values()).sort(
+    (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+  );
+
+  // 3. Merge members: keep all members from both
+  const memberMap = new Map<string, Member>();
+  (other.members || []).forEach((m) => {
+    if (m && m.id) memberMap.set(m.id, m);
+  });
+  (base.members || []).forEach((m) => {
+    if (m && m.id) memberMap.set(m.id, m);
+  });
+  const mergedMembers = Array.from(memberMap.values());
+
+  // 4. Merge tasks: keep all tasks
+  const taskMap = new Map<string, TaskItem>();
+  (other.tasks || []).forEach((t) => {
+    if (t && t.id) taskMap.set(t.id, t);
+  });
+  (base.tasks || []).forEach((t) => {
+    if (t && t.id) taskMap.set(t.id, t);
+  });
+  const mergedTasks = Array.from(taskMap.values());
+
+  // 5. Merge rewards: keep all rewards
+  const rewardMap = new Map<string, RewardItem>();
+  (other.rewards || []).forEach((r) => {
+    if (r && r.id) rewardMap.set(r.id, r);
+  });
+  (base.rewards || []).forEach((r) => {
+    if (r && r.id) rewardMap.set(r.id, r);
+  });
+  const mergedRewards = Array.from(rewardMap.values());
+
+  return {
+    family: {
+      ...base.family,
+      name: base.family?.name || other.family?.name,
+      pin: base.family?.pin || other.family?.pin,
+    },
+    members: mergedMembers.length > 0 ? mergedMembers : base.members,
+    tasks: mergedTasks.length > 0 ? mergedTasks : base.tasks,
+    rewards: mergedRewards.length > 0 ? mergedRewards : base.rewards,
+    logs: mergedLogs,
+    claims: mergedClaims,
+    updatedAt: Math.max(local.updatedAt || 0, remote.updatedAt || 0),
+  };
+};

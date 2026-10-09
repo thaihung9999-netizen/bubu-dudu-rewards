@@ -12,6 +12,7 @@ import type {
 } from './types';
 import {
   DEFAULT_FAMILY,
+  generateUniqueFamilyId,
   loadStoredFamilies,
   saveFamiliesToStorage,
   loadStoredData,
@@ -19,7 +20,7 @@ import {
 } from './utils/storage';
 import { sound } from './utils/sound';
 import { BUBU_DUDU_STICKERS } from './utils/stickers';
-import { cloudSync } from './utils/cloudSync';
+import { cloudSync, mergeFamilyData } from './utils/cloudSync';
 import { Mascot } from './components/Mascot';
 import { ActionConfirmModal } from './components/ActionConfirmModal';
 import { TaskModal } from './components/TaskModal';
@@ -53,6 +54,7 @@ import {
   UserCheck,
   Cloud,
   RefreshCw,
+  Lock,
 } from 'lucide-react';
 
 export default function App() {
@@ -161,37 +163,58 @@ export default function App() {
         const localTime = lastSyncedAt || 0;
         if (forcePull || cloudTime > localTime) {
           isPullingRef.current = true;
-          if (cloudData.family?.name && cloudData.family.name !== currentFamily.name) {
-            setCurrentFamily((prev) => ({ ...prev, name: cloudData.family!.name }));
+          const merged = mergeFamilyData(
+            {
+              family: currentFamily,
+              members,
+              tasks,
+              rewards,
+              logs,
+              claims,
+              updatedAt: lastLocalUpdateRef.current || 0,
+            },
+            cloudData
+          );
+
+          if (merged.family?.name && merged.family.name !== currentFamily.name) {
+            setCurrentFamily((prev) => ({
+              ...prev,
+              name: merged.family.name,
+              pin: merged.family.pin,
+            }));
             setFamilies((prev) =>
-              prev.map((f) => (f.id === currentFamily.id ? { ...f, name: cloudData.family!.name } : f))
+              prev.map((f) =>
+                f.id === currentFamily.id
+                  ? { ...f, name: merged.family.name, pin: merged.family.pin }
+                  : f
+              )
             );
           }
-          if (cloudData.members && cloudData.members.length > 0) {
-            setMembers(cloudData.members);
-            saveToStorage.members(cloudData.members, currentFamily.id);
+          if (merged.members && merged.members.length > 0) {
+            setMembers(merged.members);
+            saveToStorage.members(merged.members, currentFamily.id);
             setActiveMemberId((prev) => {
-              if (prev && cloudData.members.some((m) => m.id === prev)) return prev;
-              return cloudData.members[0].id;
+              if (prev && merged.members.some((m) => m.id === prev)) return prev;
+              return merged.members[0].id;
             });
           }
-          if (cloudData.tasks) {
-            setTasks(cloudData.tasks);
-            saveToStorage.tasks(cloudData.tasks, currentFamily.id);
+          if (merged.tasks) {
+            setTasks(merged.tasks);
+            saveToStorage.tasks(merged.tasks, currentFamily.id);
           }
-          if (cloudData.rewards) {
-            setRewards(cloudData.rewards);
-            saveToStorage.rewards(cloudData.rewards, currentFamily.id);
+          if (merged.rewards) {
+            setRewards(merged.rewards);
+            saveToStorage.rewards(merged.rewards, currentFamily.id);
           }
-          if (cloudData.logs) {
-            setLogs(cloudData.logs);
-            saveToStorage.logs(cloudData.logs, currentFamily.id);
+          if (merged.logs) {
+            setLogs(merged.logs);
+            saveToStorage.logs(merged.logs, currentFamily.id);
           }
-          if (cloudData.claims) {
-            setClaims(cloudData.claims);
-            saveToStorage.claims(cloudData.claims, currentFamily.id);
+          if (merged.claims) {
+            setClaims(merged.claims);
+            saveToStorage.claims(merged.claims, currentFamily.id);
           }
-          setLastSyncedAt(cloudTime);
+          setLastSyncedAt(merged.updatedAt);
           setTimeout(() => {
             isPullingRef.current = false;
           }, 600);
@@ -318,38 +341,139 @@ export default function App() {
     showToast(`Đã chuyển sang nhóm: ${family.name}! 🏡`);
   };
 
-  const handleCreateFamily = (name: string, customId?: string) => {
+  const handleCreateFamily = (name: string, customId?: string, pin?: string) => {
     sound.playPop();
-    const id = customId || `GAU-${Math.floor(1000 + Math.random() * 9000)}`;
+    const id = customId || generateUniqueFamilyId();
     const newFam: FamilyGroup = {
       id,
       name,
       createdAt: Date.now(),
+      pin,
     };
     const updated = [...families, newFam];
     setFamilies(updated);
     handleSelectFamily(newFam);
-    showToast(`Đã tạo thành công nhóm gia đình "${name}" (Mã: ${id})! ✨`);
+    showToast(`Đã tạo thành công nhóm gia đình riêng tư "${name}" (Mã: ${id})! ✨`);
   };
 
-  const handleJoinFamily = (familyId: string, customName?: string) => {
+  const handleJoinFamily = async (familyId: string, customName?: string, pin?: string) => {
     sound.playPop();
-    const existing = families.find((f) => f.id === familyId);
-    if (existing) {
-      handleSelectFamily(existing);
-      setIsClaimProfileOpen(true);
-      return;
+    setIsSyncing(true);
+    try {
+      const cloudData = await cloudSync.pullFamily(familyId);
+      if (cloudData && cloudData.family) {
+        if (cloudData.family.pin && cloudData.family.pin !== pin?.trim()) {
+          alert('Mã PIN bảo mật không chính xác! Vui lòng hỏi lại người thân.');
+          setIsSyncing(false);
+          return;
+        }
+        const joinedFam: FamilyGroup = {
+          id: familyId,
+          name: cloudData.family.name || customName || `Nhóm Gia Đình ${familyId}`,
+          createdAt: cloudData.family.createdAt || Date.now(),
+          pin: cloudData.family.pin,
+        };
+        const updated = families.some((f) => f.id === familyId)
+          ? families.map((f) => (f.id === familyId ? joinedFam : f))
+          : [...families, joinedFam];
+        setFamilies(updated);
+        setCurrentFamily(joinedFam);
+        saveFamiliesToStorage(updated, familyId);
+
+        if (cloudData.members && cloudData.members.length > 0) {
+          setMembers(cloudData.members);
+          saveToStorage.members(cloudData.members, familyId);
+          setActiveMemberId(cloudData.members[0].id);
+        }
+        if (cloudData.tasks) {
+          setTasks(cloudData.tasks);
+          saveToStorage.tasks(cloudData.tasks, familyId);
+        }
+        if (cloudData.rewards) {
+          setRewards(cloudData.rewards);
+          saveToStorage.rewards(cloudData.rewards, familyId);
+        }
+        if (cloudData.logs) {
+          setLogs(cloudData.logs);
+          saveToStorage.logs(cloudData.logs, familyId);
+        }
+        if (cloudData.claims) {
+          setClaims(cloudData.claims);
+          saveToStorage.claims(cloudData.claims, familyId);
+        }
+        setLastSyncedAt(cloudData.updatedAt || Date.now());
+        setIsClaimProfileOpen(true);
+        showToast(`Đã tham gia nhóm "${joinedFam.name}"! 🏡 Hãy chọn nhân vật của bạn nhé.`);
+        return;
+      }
+    } catch (err) {
+      console.warn('Error pulling family on join:', err);
+    } finally {
+      setIsSyncing(false);
     }
+
     const newFam: FamilyGroup = {
       id: familyId,
       name: customName || `Nhóm Gia Đình ${familyId}`,
       createdAt: Date.now(),
     };
-    const updated = [...families, newFam];
+    const updated = families.some((f) => f.id === familyId) ? families : [...families, newFam];
     setFamilies(updated);
     handleSelectFamily(newFam);
     setIsClaimProfileOpen(true);
-    showToast(`Đã tham gia nhóm gia đình "${newFam.name}"! 🏡 Hãy chọn nhân vật của bạn nhé.`);
+    showToast(`Đã vào nhóm "${newFam.name}"! 🏡`);
+  };
+
+  const handleMigrateToPrivateId = () => {
+    sound.playEarnPoint();
+    const newId = generateUniqueFamilyId();
+    const migratedFam: FamilyGroup = {
+      id: newId,
+      name: currentFamily.name !== 'Gia Đình Gấu Bubu & Dudu' ? currentFamily.name : 'Gia Đình Gấu Của Chúng Mình 🏡',
+      createdAt: Date.now(),
+      pin: currentFamily.pin,
+    };
+    const updated = [migratedFam, ...families.filter((f) => f.id !== 'GAU-BUBU-DUDU')];
+    setFamilies(updated);
+    setCurrentFamily(migratedFam);
+    saveFamiliesToStorage(updated, newId);
+    saveToStorage.members(members, newId);
+    saveToStorage.tasks(tasks, newId);
+    saveToStorage.rewards(rewards, newId);
+    saveToStorage.logs(logs, newId);
+    saveToStorage.claims(claims, newId);
+    saveToStorage.activeMemberId(activeMemberId, newId);
+
+    // Push to new private cloud key
+    cloudSync.pushFamily({
+      family: migratedFam,
+      members,
+      tasks,
+      rewards,
+      logs,
+      claims,
+      updatedAt: Date.now(),
+    });
+    setLastSyncedAt(Date.now());
+    showToast(`Đã chuyển sang Mã Nhóm Riêng Tư mới: ${newId}! 🔒✨`);
+  };
+
+  const handleSetFamilyPin = (pin: string | undefined) => {
+    const updatedFam: FamilyGroup = { ...currentFamily, pin };
+    setCurrentFamily(updatedFam);
+    const updatedFamilies = families.map((f) => (f.id === currentFamily.id ? updatedFam : f));
+    setFamilies(updatedFamilies);
+    saveFamiliesToStorage(updatedFamilies, currentFamily.id);
+    cloudSync.debouncedPush({
+      family: updatedFam,
+      members,
+      tasks,
+      rewards,
+      logs,
+      claims,
+      updatedAt: Date.now(),
+    });
+    showToast(pin ? 'Đã cài mã PIN bảo mật cho gia đình! 🔒' : 'Đã tắt mã PIN bảo mật. 🔓');
   };
 
   const handleSelectProfile = (memberId: string, updatedName?: string) => {
@@ -373,8 +497,11 @@ export default function App() {
       prev.map((m) => ({
         ...m,
         points: 0,
-        ...(resetStreakToo ? { streak: 0 } : {}),
+        ...(resetStreakToo ? { streak: 0, lastActiveDate: undefined } : {}),
       }))
+    );
+    setTasks((prev) =>
+      prev.map((t) => ({ ...t, timesCompleted: 0 }))
     );
     const newLog: PointLog = {
       id: 'log_' + Date.now(),
@@ -424,17 +551,34 @@ export default function App() {
       showToast(`Đã trừ ${task.points} 🐻 của ${member.name}. Cố gắng lên nhé!`, 'warning');
     }
 
-    // Update member points
+    // Update member points and consecutive daily streak
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterdayDate = new Date();
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterday = yesterdayDate.toISOString().slice(0, 10);
+
     setMembers((prev) =>
-      prev.map((m) =>
-        m.id === member.id
-          ? {
-              ...m,
-              points: Math.max(0, m.points + task.points),
-              streak: isEarn ? m.streak + 1 : m.streak,
-            }
-          : m
-      )
+      prev.map((m) => {
+        if (m.id !== member.id) return m;
+
+        let nextStreak = m.streak;
+        if (isEarn) {
+          if (m.lastActiveDate === today) {
+            nextStreak = Math.max(1, m.streak);
+          } else if (m.lastActiveDate === yesterday) {
+            nextStreak = m.streak + 1;
+          } else {
+            nextStreak = 1;
+          }
+        }
+
+        return {
+          ...m,
+          points: Math.max(0, m.points + task.points),
+          streak: nextStreak,
+          lastActiveDate: isEarn ? today : m.lastActiveDate,
+        };
+      })
     );
 
     // Update task timesCompleted
@@ -807,11 +951,12 @@ export default function App() {
           <button
             onClick={() => setIsFamilyModalOpen(true)}
             className="flex items-center gap-1.5 py-1 px-2.5 sm:px-3 rounded-full bg-amber-100/80 hover:bg-amber-200/90 text-amber-900 font-extrabold border border-amber-300 shadow-2xs transition cursor-pointer max-w-[50%] sm:max-w-[60%] truncate"
-            title="Bấm để đổi nhóm hoặc chia sẻ link"
+            title="Bấm để đổi nhóm, cài mã PIN hoặc chia sẻ link"
           >
             <Home className="w-3.5 h-3.5 text-amber-700 shrink-0" />
             <span className="truncate">{currentFamily.name}</span>
-            <span className="bg-amber-200/80 px-1.5 py-0.2 rounded-md font-mono text-[10px] shrink-0">
+            <span className="bg-amber-200/80 px-1.5 py-0.2 rounded-md font-mono text-[10px] shrink-0 flex items-center gap-1">
+              {currentFamily.pin && <Lock className="w-2.5 h-2.5 text-amber-800" />}
               {currentFamily.id}
             </span>
           </button>
@@ -841,6 +986,25 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        {/* Public Demo Warning Banner if on GAU-BUBU-DUDU */}
+        {currentFamily.id === 'GAU-BUBU-DUDU' && (
+          <div className="mb-2 p-2.5 px-3 rounded-2xl bg-amber-500/10 border border-amber-400 flex items-center justify-between gap-2 text-xs text-amber-950">
+            <div className="flex items-center gap-1.5 truncate">
+              <span className="text-sm shrink-0">⚠️</span>
+              <span className="text-[11px] font-medium truncate">
+                Đang ở <strong>Mã Dùng Thử Công Khai</strong>. Chuyển sang mã riêng để bảo mật!
+              </span>
+            </div>
+            <button
+              onClick={handleMigrateToPrivateId}
+              className="px-2.5 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-[11px] shrink-0 transition shadow-2xs cursor-pointer flex items-center gap-1"
+            >
+              <Lock className="w-3 h-3" />
+              <span>Đổi Mã Riêng Tư</span>
+            </button>
+          </div>
+        )}
 
         {/* Top Header */}
         <header className="bg-white/85 backdrop-blur-md rounded-3xl p-3.5 sm:p-4 shadow-xs border-2 border-amber-100 flex items-center justify-between">
@@ -2092,6 +2256,8 @@ export default function App() {
         onSelectFamily={handleSelectFamily}
         onCreateFamily={handleCreateFamily}
         onJoinFamily={handleJoinFamily}
+        onMigrateToPrivateId={handleMigrateToPrivateId}
+        onSetPin={handleSetFamilyPin}
       />
 
       <ClaimProfileModal

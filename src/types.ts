@@ -3,9 +3,10 @@ export type CharacterType = 'bubu' | 'dudu' | 'panda' | 'baby_bear';
 export type MascotExpression = 'happy' | 'celebrate' | 'sad' | 'pout' | 'love' | 'neutral';
 
 export interface FamilyGroup {
-  id: string; // e.g., 'GAU-8824'
+  id: string; // e.g., 'GAU-8824-A1B2'
   name: string; // e.g., 'Nhà Gấu Bubu & Dudu'
   createdAt: number;
+  pin?: string; // Optional 4-digit security PIN to prevent unauthorized joining
 }
 
 export interface Member {
@@ -15,6 +16,7 @@ export interface Member {
   role: string; // e.g., 'Vợ iu', 'Chồng iu', 'Bé Bông', 'Bé Ben'
   points: number;
   streak: number;
+  lastActiveDate?: string; // YYYY-MM-DD to accurately track consecutive daily streaks
   avatarExpression?: MascotExpression;
   avatarSticker?: string;
 }

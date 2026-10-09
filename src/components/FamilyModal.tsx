@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { FamilyGroup } from '../types';
-import { X, Users, Copy, Check, Plus, LogIn, Share2 } from 'lucide-react';
+import { generateUniqueFamilyId } from '../utils/storage';
+import { X, Users, Copy, Check, Plus, LogIn, Share2, Lock, Sparkles, KeyRound } from 'lucide-react';
 
 interface FamilyModalProps {
   isOpen: boolean;
@@ -8,8 +9,10 @@ interface FamilyModalProps {
   currentFamily: FamilyGroup;
   families: FamilyGroup[];
   onSelectFamily: (family: FamilyGroup) => void;
-  onCreateFamily: (name: string, customId?: string) => void;
-  onJoinFamily: (familyId: string, name?: string) => void;
+  onCreateFamily: (name: string, customId?: string, pin?: string) => void;
+  onJoinFamily: (familyId: string, name?: string, pin?: string) => void;
+  onMigrateToPrivateId?: () => void;
+  onSetPin?: (pin: string | undefined) => void;
 }
 
 export const FamilyModal: React.FC<FamilyModalProps> = ({
@@ -20,12 +23,18 @@ export const FamilyModal: React.FC<FamilyModalProps> = ({
   onSelectFamily,
   onCreateFamily,
   onJoinFamily,
+  onMigrateToPrivateId,
+  onSetPin,
 }) => {
   const [activeTab, setActiveTab] = useState<'current' | 'create' | 'join'>('current');
   const [newFamilyName, setNewFamilyName] = useState('');
   const [newFamilyId, setNewFamilyId] = useState('');
+  const [newFamilyPin, setNewFamilyPin] = useState('');
   const [joinId, setJoinId] = useState('');
   const [joinName, setJoinName] = useState('');
+  const [joinPin, setJoinPin] = useState('');
+  const [isEditingPin, setIsEditingPin] = useState(false);
+  const [pinInput, setPinInput] = useState(currentFamily.pin || '');
   const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
@@ -44,21 +53,43 @@ export const FamilyModal: React.FC<FamilyModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleGenerateRandomId = () => {
+    setNewFamilyId(generateUniqueFamilyId());
+  };
+
+  const handleSavePin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onSetPin) {
+      onSetPin(pinInput.trim() ? pinInput.trim() : undefined);
+    }
+    setIsEditingPin(false);
+  };
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFamilyName.trim()) return;
-    onCreateFamily(newFamilyName.trim(), newFamilyId.trim() || undefined);
+    onCreateFamily(
+      newFamilyName.trim(),
+      newFamilyId.trim() || undefined,
+      newFamilyPin.trim() || undefined
+    );
     setNewFamilyName('');
     setNewFamilyId('');
+    setNewFamilyPin('');
     setActiveTab('current');
   };
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinId.trim()) return;
-    onJoinFamily(joinId.trim(), joinName.trim() || undefined);
+    onJoinFamily(
+      joinId.trim(),
+      joinName.trim() || undefined,
+      joinPin.trim() || undefined
+    );
     setJoinId('');
     setJoinName('');
+    setJoinPin('');
     setActiveTab('current');
   };
 
@@ -120,7 +151,31 @@ export const FamilyModal: React.FC<FamilyModalProps> = ({
 
         {/* --- VIEW 1: CURRENT FAMILY & SWITCH --- */}
         {activeTab === 'current' && (
-          <div className="space-y-4">
+          <div className="space-y-3.5">
+            {/* Warning if still on public default demo ID */}
+            {currentFamily.id === 'GAU-BUBU-DUDU' && onMigrateToPrivateId && (
+              <div className="p-3.5 rounded-2xl bg-rose-50 border-2 border-rose-300 text-left space-y-2">
+                <div className="flex items-center gap-2 text-rose-900 font-black text-xs">
+                  <span className="text-base">⚠️</span>
+                  <span>Cảnh báo: Đang dùng mã công khai chung!</span>
+                </div>
+                <p className="text-[11px] text-rose-800 leading-relaxed">
+                  Mã <code>GAU-BUBU-DUDU</code> là mã dùng thử chung, người lạ vào web cũng có thể thấy. Hãy chuyển sang <strong>Mã Nhóm Riêng Tư</strong> để bảo vệ dữ liệu gia đình bạn 100%!
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onMigrateToPrivateId();
+                    onClose();
+                  }}
+                  className="w-full py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Chuyển Sang Mã Riêng Tư Ngay</span>
+                </button>
+              </div>
+            )}
+
             {/* Current Family Box */}
             <div className="p-4 rounded-2xl bg-amber-50/80 border-2 border-amber-200 text-left">
               <span className="text-[10px] font-black uppercase text-amber-800/80 tracking-wider">
@@ -133,7 +188,7 @@ export const FamilyModal: React.FC<FamilyModalProps> = ({
               <div className="mt-3 flex items-center justify-between p-2.5 bg-white rounded-xl border border-amber-200">
                 <div>
                   <span className="text-[10px] text-stone-400 font-bold block">MÃ ID GIA ĐÌNH:</span>
-                  <span className="text-sm font-black text-amber-900 tracking-wide">
+                  <span className="text-sm font-black text-amber-900 tracking-wide font-mono">
                     {currentFamily.id}
                   </span>
                 </div>
@@ -154,6 +209,64 @@ export const FamilyModal: React.FC<FamilyModalProps> = ({
                 <Share2 className="w-4 h-4" />
                 <span>Sao chép Link mời các thành viên tham gia</span>
               </button>
+            </div>
+
+            {/* PIN Security Setting */}
+            <div className="p-3 rounded-2xl bg-stone-50 border border-stone-200 text-left">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-amber-700" />
+                  <div>
+                    <h5 className="font-bold text-xs text-stone-800">Mã PIN Bảo Vệ Nhóm</h5>
+                    <p className="text-[10px] text-stone-500">
+                      {currentFamily.pin ? `Đang bật bảo vệ (PIN: ${currentFamily.pin})` : 'Chưa cài mã PIN (ai có ID đều vào được)'}
+                    </p>
+                  </div>
+                </div>
+                {onSetPin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPinInput(currentFamily.pin || '');
+                      setIsEditingPin(!isEditingPin);
+                    }}
+                    className="text-xs text-amber-800 font-bold hover:underline cursor-pointer"
+                  >
+                    {isEditingPin ? 'Đóng' : currentFamily.pin ? 'Đổi PIN' : '+ Cài PIN'}
+                  </button>
+                )}
+              </div>
+
+              {isEditingPin && (
+                <form onSubmit={handleSavePin} className="mt-2.5 pt-2 border-t border-stone-200 flex gap-2">
+                  <input
+                    type="password"
+                    maxLength={6}
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Nhập 4 số PIN..."
+                    className="flex-1 px-3 py-1.5 rounded-xl border border-stone-300 text-xs font-mono tracking-widest text-center"
+                  />
+                  <button
+                    type="submit"
+                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs cursor-pointer"
+                  >
+                    Lưu
+                  </button>
+                  {currentFamily.pin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onSetPin) onSetPin(undefined);
+                        setIsEditingPin(false);
+                      }}
+                      className="px-2 py-1.5 rounded-xl bg-stone-200 text-stone-600 font-bold text-xs cursor-pointer"
+                    >
+                      Tắt PIN
+                    </button>
+                  )}
+                </form>
+              )}
             </div>
 
             {/* Switch Families List */}
@@ -178,7 +291,7 @@ export const FamilyModal: React.FC<FamilyModalProps> = ({
                     >
                       <div>
                         <div className="text-xs text-stone-800">{f.name}</div>
-                        <div className="text-[10px] text-stone-400">ID: {f.id}</div>
+                        <div className="text-[10px] text-stone-400 font-mono">ID: {f.id}</div>
                       </div>
                       {f.id === currentFamily.id && (
                         <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-md font-bold">
@@ -211,15 +324,39 @@ export const FamilyModal: React.FC<FamilyModalProps> = ({
             </div>
 
             <div>
-              <label className="text-xs font-bold text-stone-600 block mb-1">
-                Tùy chỉnh Mã ID Nhóm (bỏ trống để tự tạo mã ngẫu nhiên):
-              </label>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-xs font-bold text-stone-600">
+                  Mã ID Nhóm (Riêng tư):
+                </label>
+                <button
+                  type="button"
+                  onClick={handleGenerateRandomId}
+                  className="text-[11px] text-amber-800 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-600" />
+                  <span>Tạo mã ngẫu nhiên</span>
+                </button>
+              </div>
               <input
                 type="text"
                 value={newFamilyId}
                 onChange={(e) => setNewFamilyId(e.target.value.toUpperCase().replace(/\s+/g, '-'))}
-                placeholder="Ví dụ: GAU-YEU-2026, NHA-MINH..."
+                placeholder="Bấm 'Tạo mã ngẫu nhiên' hoặc tự nhập (VD: GAU-YEU-2026)"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 font-mono text-xs uppercase"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-stone-600 block mb-1">
+                Mã PIN bảo mật (không bắt buộc, 4 số):
+              </label>
+              <input
+                type="password"
+                maxLength={6}
+                value={newFamilyPin}
+                onChange={(e) => setNewFamilyPin(e.target.value.replace(/\D/g, ''))}
+                placeholder="Ví dụ: 1234 (để khóa chỉ người có PIN mới vào được)"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 font-mono tracking-widest"
               />
             </div>
 
@@ -245,8 +382,22 @@ export const FamilyModal: React.FC<FamilyModalProps> = ({
                 required
                 value={joinId}
                 onChange={(e) => setJoinId(e.target.value.toUpperCase().trim())}
-                placeholder="Ví dụ: GAU-BUBU-DUDU hoặc GAU-8824"
+                placeholder="Ví dụ: GAU-8824-A1B2"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 font-mono uppercase"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-stone-600 block mb-1">
+                Mã PIN bảo mật (nếu nhóm đó có cài PIN):
+              </label>
+              <input
+                type="password"
+                maxLength={6}
+                value={joinPin}
+                onChange={(e) => setJoinPin(e.target.value.replace(/\D/g, ''))}
+                placeholder="Nhập 4 số PIN (nếu nhóm có đặt PIN)"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 font-mono tracking-widest"
               />
             </div>
 
@@ -258,7 +409,7 @@ export const FamilyModal: React.FC<FamilyModalProps> = ({
                 type="text"
                 value={joinName}
                 onChange={(e) => setJoinName(e.target.value)}
-                placeholder="Ví dụ: Nhà Ngoại, Nhà Anh Chị..."
+                placeholder="Ví dụ: Nhà Ngoại, Nhà Vợ..."
                 className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
               />
             </div>

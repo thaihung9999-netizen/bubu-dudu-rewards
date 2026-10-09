@@ -7,6 +7,16 @@ export const DEFAULT_FAMILY: FamilyGroup = {
   createdAt: 1728345600000,
 };
 
+export const generateUniqueFamilyId = (): string => {
+  const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let randomPart = '';
+  for (let i = 0; i < 4; i++) {
+    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  const numPart = Math.floor(1000 + Math.random() * 9000);
+  return `GAU-${numPart}-${randomPart}`;
+};
+
 const GLOBAL_KEYS = {
   CURRENT_FAMILY_ID: 'bubu_dudu_current_family_id',
   FAMILIES: 'bubu_dudu_families',
@@ -14,23 +24,48 @@ const GLOBAL_KEYS = {
 };
 
 const getFamilyPrefix = (familyId: string) => {
-  return familyId === DEFAULT_FAMILY.id ? 'bubu_dudu' : `bubu_dudu_${familyId}`;
+  return `bubu_dudu_${familyId}`;
 };
 
-export const loadStoredFamilies = (): { currentFamilyId: string; families: FamilyGroup[] } => {
+export const loadStoredFamilies = (): { currentFamilyId: string; families: FamilyGroup[]; isFirstTime: boolean } => {
   try {
-    let families: FamilyGroup[] = JSON.parse(
-      localStorage.getItem(GLOBAL_KEYS.FAMILIES) || JSON.stringify([DEFAULT_FAMILY])
-    );
-    if (!families.some((f) => f.id === DEFAULT_FAMILY.id)) {
-      families.unshift(DEFAULT_FAMILY);
+    const raw = localStorage.getItem(GLOBAL_KEYS.FAMILIES);
+    if (!raw) {
+      // New visitor: create a completely private and unique family ID!
+      const uniqueId = generateUniqueFamilyId();
+      const firstFamily: FamilyGroup = {
+        id: uniqueId,
+        name: 'Gia Đình Gấu Của Chúng Mình 🏡',
+        createdAt: Date.now(),
+      };
+      saveFamiliesToStorage([firstFamily], uniqueId);
+      return { currentFamilyId: uniqueId, families: [firstFamily], isFirstTime: true };
     }
+
+    const families: FamilyGroup[] = JSON.parse(raw);
+    if (!families || families.length === 0) {
+      const uniqueId = generateUniqueFamilyId();
+      const firstFamily: FamilyGroup = {
+        id: uniqueId,
+        name: 'Gia Đình Gấu Của Chúng Mình 🏡',
+        createdAt: Date.now(),
+      };
+      saveFamiliesToStorage([firstFamily], uniqueId);
+      return { currentFamilyId: uniqueId, families: [firstFamily], isFirstTime: true };
+    }
+
     const currentFamilyId =
-      localStorage.getItem(GLOBAL_KEYS.CURRENT_FAMILY_ID) || DEFAULT_FAMILY.id;
-    return { currentFamilyId, families };
+      localStorage.getItem(GLOBAL_KEYS.CURRENT_FAMILY_ID) || families[0].id;
+    return { currentFamilyId, families, isFirstTime: false };
   } catch (error) {
     console.error('Error loading families', error);
-    return { currentFamilyId: DEFAULT_FAMILY.id, families: [DEFAULT_FAMILY] };
+    const uniqueId = generateUniqueFamilyId();
+    const fallback: FamilyGroup = {
+      id: uniqueId,
+      name: 'Gia Đình Gấu Của Chúng Mình 🏡',
+      createdAt: Date.now(),
+    };
+    return { currentFamilyId: uniqueId, families: [fallback], isFirstTime: true };
   }
 };
 
@@ -39,7 +74,7 @@ export const saveFamiliesToStorage = (families: FamilyGroup[], currentFamilyId: 
   localStorage.setItem(GLOBAL_KEYS.CURRENT_FAMILY_ID, currentFamilyId);
 };
 
-export const loadStoredData = (familyId: string = DEFAULT_FAMILY.id) => {
+export const loadStoredData = (familyId: string) => {
   try {
     const prefix = getFamilyPrefix(familyId);
     const membersKey = `${prefix}_members`;
@@ -54,16 +89,12 @@ export const loadStoredData = (familyId: string = DEFAULT_FAMILY.id) => {
     if (storedMembers) {
       members = JSON.parse(storedMembers);
     } else {
-      if (familyId === DEFAULT_FAMILY.id) {
-        members = JSON.parse(JSON.stringify(INITIAL_MEMBERS));
-      } else {
-        // Gia đình mới khởi đầu với 0 điểm và 0 streak
-        members = INITIAL_MEMBERS.map((m) => ({
-          ...m,
-          points: 0,
-          streak: 0,
-        }));
-      }
+      // New family starts with fresh 0 points and 0 streak
+      members = INITIAL_MEMBERS.map((m) => ({
+        ...m,
+        points: 0,
+        streak: 0,
+      }));
     }
 
     // Ensure all members have sticker avatars assigned
